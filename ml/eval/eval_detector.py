@@ -184,7 +184,9 @@ def run_detector(args, images):
 
 
 # ---------------------------------------------------------------- scoring
-def score(cache, split: Path, model_classes, iou_thr, op_conf, n_boot, seed, groups=None):
+def score(cache, split: Path, model_classes, iou_thr, op_conf, n_boot, seed, groups=None, return_samples=False):
+    """Scores one run. With the same seed and groups, two runs on the same images get identical bootstrap
+    draws, so `return_samples=True` lets eval/compare_runs.py bootstrap their difference."""
     n_img = len(cache)
     per_cls_conf, per_cls_tp, per_cls_img = defaultdict(list), defaultdict(list), defaultdict(list)
     gt_count = defaultdict(lambda: np.zeros(n_img))
@@ -250,7 +252,8 @@ def score(cache, split: Path, model_classes, iou_thr, op_conf, n_boot, seed, gro
     def ci(xs):
         return [float(np.percentile(xs, 2.5)), float(np.percentile(xs, 97.5))] if xs else None
 
-    return {
+    samples = {"boot_all": boot_all, "boot_predictable": boot_pred} if return_samples else {}
+    return samples | {
         "n_images": n_img,
         "iou_threshold": iou_thr,
         "operating_conf": op_conf,
