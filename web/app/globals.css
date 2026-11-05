@@ -3,26 +3,90 @@
 @theme {
   --color-brand: #0b6e4f;
   --color-brand-dark: #08573e;
-  --color-muted: #52525b;
-  --font-sans: var(--font-geist-sans), var(--font-bengali), ui-sans-serif, system-ui, sans-serif;
+  --color-brand-soft: #e7f3ee;
+  --color-muted: #5b6472;
+  --font-sans: var(--font-ui);
+}
+
+/* ------------------------------------------------------------------ per-platform look
+   app/layout.tsx sets <html data-os="ios|android|mac|windows|linux|other"> before the first paint.
+   Each platform gets its own system font, corner radius and control height, so the site feels native:
+   iOS/macOS use SF with rounder corners, Android uses Roboto with Material-style pill buttons and 48px
+   touch targets, Windows uses Segoe UI Variable with tighter Fluent-style corners. Bangla always falls
+   back to Noto Sans Bengali. */
+:root {
+  --font-ui: var(--font-geist-sans), var(--font-bengali), ui-sans-serif, system-ui, sans-serif;
+  --radius: 12px;
+  --radius-btn: 10px;
+  --radius-input: 10px;
+  --control-h: 40px;
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.06);
+  --shadow-float: 0 4px 12px rgb(15 23 42 / 0.08), 0 12px 32px rgb(15 23 42 / 0.10);
+  --bg: #f5f7f6;
+  --tabbar-h: 0px; /* height of the phone tab bar (0 on wide screens) */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+html[data-os="ios"],
+html[data-os="mac"] {
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", var(--font-bengali), system-ui, sans-serif;
+  --radius: 14px;
+}
+html[data-os="ios"] {
+  --control-h: 44px; /* Apple's minimum touch target */
+}
+html[data-os="android"] {
+  --font-ui: Roboto, "Google Sans", var(--font-bengali), system-ui, sans-serif;
+  --radius: 16px;
+  --radius-btn: 999px;
+  --radius-input: 12px;
+  --control-h: 48px;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.06), 0 1px 3px 1px rgb(0 0 0 / 0.04);
+}
+html[data-os="windows"] {
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", var(--font-geist-sans), var(--font-bengali), system-ui, sans-serif;
+  --radius: 8px;
+  --radius-btn: 6px;
+  --radius-input: 6px;
+  --control-h: 36px;
+}
+@media (max-width: 767px) {
+  :root {
+    --tabbar-h: calc(64px + env(safe-area-inset-bottom));
+  }
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  text-size-adjust: 100%;
 }
 
 body {
-  background: #f6f7f6;
-  color: #18181b;
-  /* installed app on notched phones: keep content out from under the notch and home bar */
+  background: var(--bg);
+  color: #111827;
+  /* installed app on notched phones: keep content out from under the notch, home bar and tab bar */
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: max(env(safe-area-inset-bottom), var(--tabbar-h));
 }
 
-header {
+header.rw-header {
   padding-top: env(safe-area-inset-top);
+  background: rgb(255 255 255 / 0.85);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.01em;
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-zinc-200 bg-white p-4;
+    @apply border border-zinc-200/80 bg-white p-4;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
   }
   .legend {
     @apply px-1 font-semibold text-lg;
@@ -31,13 +95,50 @@ header {
     color: var(--color-muted);
   }
   .input {
-    @apply w-full rounded-lg border border-zinc-300 bg-white px-3 py-2;
+    @apply w-full border border-zinc-300 bg-white px-3 py-2;
+    border-radius: var(--radius-input);
+    min-height: var(--control-h);
+    transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease);
+  }
+  .input:focus {
+    border-color: var(--color-brand);
+    box-shadow: 0 0 0 3px rgb(11 110 79 / 0.15);
   }
   .btn-primary {
-    @apply rounded-lg bg-brand px-4 py-2.5 font-medium text-white hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-1.5 bg-brand px-4 py-2 font-medium text-white hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed;
+    border-radius: var(--radius-btn);
+    min-height: var(--control-h);
+    box-shadow: 0 1px 2px rgb(11 110 79 / 0.25);
+    transition: background-color 160ms var(--ease), transform 160ms var(--ease);
   }
   .btn-secondary {
-    @apply inline-block rounded-lg border border-zinc-300 bg-white px-3 py-1.5 hover:bg-zinc-50 disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 border border-zinc-300 bg-white px-3 py-1 hover:bg-zinc-50 disabled:opacity-50;
+    border-radius: var(--radius-btn);
+    min-height: calc(var(--control-h) - 6px);
+    transition: background-color 160ms var(--ease), border-color 160ms var(--ease), transform 160ms var(--ease);
+  }
+  .btn-primary:active:not(:disabled),
+  .btn-secondary:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 border px-3 text-sm;
+    border-radius: 999px;
+    min-height: 32px;
+    transition: background-color 160ms var(--ease), color 160ms var(--ease), border-color 160ms var(--ease);
+  }
+  .chip[aria-pressed="true"] {
+    @apply border-brand bg-brand text-white;
+  }
+  .chip[aria-pressed="false"] {
+    @apply border-zinc-300 bg-white hover:bg-zinc-50;
+  }
+  .nav-link {
+    @apply rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900;
+    transition: background-color 160ms var(--ease), color 160ms var(--ease);
+  }
+  .nav-link[aria-current="page"] {
+    @apply bg-brand-soft text-brand;
   }
 }
 
@@ -46,9 +147,67 @@ header {
   outline-offset: 2px;
 }
 
-/* Background traffic (components/TrafficBackground.tsx): faint, behind content, never in the way */
+/* pages fade in softly (opacity only: a transform would break fixed/bleed layouts inside the page) */
+@keyframes rw-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+main > * {
+  animation: rw-enter 320ms var(--ease) both;
+}
+
+/* ------------------------------------------------------------------ phone tab bar (components/Header.tsx)
+   iOS: translucent bar, labels under the icons. Android: Material 3 navigation bar, the active item sits
+   in a soft pill. Other phones get the iOS-like look. Hidden on wide screens. */
+.rw-tabbar {
+  height: var(--tabbar-h);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: rgb(255 255 255 / 0.9);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+}
+.rw-tab {
+  color: #6b7280;
+  transition: color 160ms var(--ease);
+}
+.rw-tab[aria-current="page"] {
+  color: var(--color-brand);
+}
+.rw-tab-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 28px;
+  border-radius: 999px;
+  transition: background-color 200ms var(--ease);
+}
+html[data-os="android"] .rw-tabbar {
+  background: #f1f5f3;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-os="android"] .rw-tab-icon {
+  width: 56px;
+  height: 30px;
+}
+html[data-os="android"] .rw-tab[aria-current="page"] {
+  color: #08573e;
+}
+html[data-os="android"] .rw-tab[aria-current="page"] .rw-tab-icon {
+  background: #cfe9dd;
+}
+/* things pinned to the bottom (install banner) sit above the tab bar */
+.rw-above-tabbar {
+  bottom: var(--tabbar-h);
+}
+
+/* ------------------------------------------------------------------ background traffic (TrafficBackground.tsx)
+   Faint, slow and behind everything: it should be noticed, not watched. */
 .traffic-bg {
-  opacity: 0.35;
+  bottom: var(--tabbar-h);
+  opacity: 0.16;
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
 }
 .traffic-dashes {
   background: repeating-linear-gradient(90deg, #a1a1aa 0 28px, transparent 28px 56px);
@@ -73,19 +232,39 @@ header {
   from { transform: translateX(100vw); }
   to { transform: translateX(-140px); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .traffic-car {
-    animation: none;
-  }
-  .traffic-ltr:nth-of-type(odd) { transform: translateX(15vw); }
-  .traffic-ltr:nth-of-type(even) { transform: translateX(60vw); }
-  .traffic-rtl:nth-of-type(odd) { transform: translateX(40vw); }
-  .traffic-rtl:nth-of-type(even) { transform: translateX(80vw); }
-}
-@media print {
-  .traffic-bg { display: none; }
-}
 
+/* ------------------------------------------------------------------ road map */
+/* the map page is wider than the reading column */
+.rw-bleed {
+  width: min(calc(100vw - 3rem), 72rem);
+  margin-left: calc(50% - min(calc(50vw - 1.5rem), 36rem)); /* no transform: pages fade in with one */
+}
+.rw-float {
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-float);
+}
+/* a soft "live" pulse: slow and small */
+.rw-live-dot {
+  position: relative;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #16a34a;
+}
+.rw-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  background: #16a34a;
+  opacity: 0;
+  animation: rw-pulse 2.8s var(--ease) infinite;
+}
+@keyframes rw-pulse {
+  0% { opacity: 0.35; transform: scale(0.6); }
+  100% { opacity: 0; transform: scale(1.6); }
+}
 /* town names on the offline map (HTML, so Bangla is shaped by the browser) */
 .rw-town {
   font-size: 12px;
@@ -94,4 +273,22 @@ header {
   text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff;
   pointer-events: none;
   white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  main > *,
+  .traffic-car,
+  .rw-live-dot::after {
+    animation: none;
+  }
+  .traffic-ltr:nth-of-type(odd) { transform: translateX(15vw); }
+  .traffic-ltr:nth-of-type(even) { transform: translateX(60vw); }
+  .traffic-rtl:nth-of-type(odd) { transform: translateX(40vw); }
+  .traffic-rtl:nth-of-type(even) { transform: translateX(80vw); }
+}
+@media print {
+  .traffic-bg,
+  .rw-tabbar {
+    display: none;
+  }
 }
