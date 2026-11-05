@@ -11,3 +11,6 @@ ml/.venv/
 
 # generated detector-eval caches (pickles: never publish)
 ml/eval/results/*.pkl
+
+.vercel
+.env*
