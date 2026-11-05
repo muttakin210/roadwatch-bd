@@ -55,6 +55,13 @@ def setup(db: Callable[[], sqlite3.Connection]) -> None:
     _db = db
     with _att_lock:
         _attempts.clear()
+    with db() as c:   # columns added after the first release: migrate existing databases in place
+        for table, col, decl in (("users", "disabled", "INT NOT NULL DEFAULT 0"),
+                                 ("rewards", "void_reason", "TEXT"),
+                                 ("reports", "resolved_at", "REAL"),
+                                 ("reports", "resolved_by", "TEXT")):
+            if col not in {r[1] for r in c.execute(f"PRAGMA table_info({table})")}:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
 
 def db() -> sqlite3.Connection:
@@ -104,7 +111,8 @@ def current_user(request: Request) -> sqlite3.Row | None:
         return None
     with db() as c:
         return c.execute("SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id "
-                         "WHERE s.token_hash=? AND s.expires_at>?", (_th(token), time.time())).fetchone()
+                         "WHERE s.token_hash=? AND s.expires_at>? AND u.disabled=0",
+                         (_th(token), time.time())).fetchone()
 
 
 def require_user(request: Request) -> sqlite3.Row:
@@ -211,6 +219,8 @@ def login(body: Login, request: Request, response: Response):
         ok = check_password(body.password, u["password_hash"] if u else _DUMMY_HASH)
         if not (u and ok):
             raise HTTPException(401, "email or password is wrong")   # same answer for unknown emails
+        if u["disabled"]:
+            raise HTTPException(403, "this account has been disabled")
         _new_session(c, u["id"], response)
         return me_json(u)
 
@@ -319,7 +329,7 @@ def my_rewards(u: sqlite3.Row = Depends(require_user)):
         rows = c.execute("SELECT id, case_id, fine_bdt, amount_bdt, status, created_at FROM rewards WHERE user_id=? "
                          "ORDER BY created_at DESC", (u["id"],)).fetchall()
     return {"rewards": [dict(r) for r in rows], "share": REWARD_SHARE,
-            "total_credited_bdt": sum(r["amount_bdt"] for r in rows), "paid_out_bdt": 0}
+            "total_credited_bdt": sum(r["amount_bdt"] for r in rows if r["status"] == "credited"), "paid_out_bdt": 0}
 
 
 @router.get("/api/users/{uid}")
@@ -327,9 +337,10 @@ def public_profile(uid: str, request: Request):
     viewer = current_user(request)
     with db() as c:
         u = c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
-        if not u or not (u["profile_public"] or (viewer and viewer["id"] == uid)):
+        if not u or u["disabled"] or not (u["profile_public"] or (viewer and viewer["id"] == uid)):
             raise HTTPException(404)   # a hidden profile looks the same as a missing one
         vids = c.execute("SELECT id, created_at, camera_type, lat, lng FROM videos WHERE user_id=? AND status='done' "
+                         "AND COALESCE(moderation_status, '') != 'hidden' "
                          "ORDER BY created_at DESC LIMIT 100", (uid,)).fetchall()
         confirmed = c.execute("SELECT COUNT(*) FROM cases WHERE uploader_id=? AND status IN ('confirmed','fined')",
                               (uid,)).fetchone()[0]
@@ -439,14 +450,6 @@ def police_decide(cid: str, d: PoliceDecision, u: sqlite3.Row = Depends(require_
 
 
 # --------------------------------------------------------------------------- admin
-@router.get("/api/admin/users")
-def list_users(q: str = "", u: sqlite3.Row = Depends(require_role("admin"))):
-    with db() as c:
-        rows = c.execute("SELECT id, email, display_name, role, created_at FROM users WHERE email LIKE ? "
-                         "ORDER BY created_at DESC LIMIT 100", (f"%{q.strip().lower()}%",)).fetchall()
-    return {"users": [dict(r) for r in rows]}
-
-
 class RoleChange(BaseModel):
     role: Literal["user", "reviewer", "police", "admin"]
 
@@ -457,7 +460,14 @@ def set_role_route(uid: str, body: RoleChange, u: sqlite3.Row = Depends(require_
         raise HTTPException(400, "you can't remove your own admin role")
     if not set_role(uid, body.role):
         raise HTTPException(404)
+    audit(u["id"], "set_role", uid, body.role)
     return {"id": uid, "role": body.role}
+
+
+def audit(admin_id: str, action: str, target: str | None = None, detail: str | None = None) -> None:
+    with db() as c:
+        c.execute("INSERT INTO admin_log(id, admin_id, action, target, detail, created_at) VALUES (?,?,?,?,?,?)",
+                  (uuid.uuid4().hex, admin_id, action, target, (detail or "")[:500] or None, time.time()))
 
 
 def set_role(uid: str, role: str) -> bool:

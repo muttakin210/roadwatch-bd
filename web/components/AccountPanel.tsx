@@ -44,6 +44,11 @@ export default function AccountPanel() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold">{t("myAccount")}</h1>
         <div className="flex flex-wrap gap-2">
+          {me.role === "admin" && (
+            <Link className="btn-primary" href="/admin">
+              {t("adminPanel")}
+            </Link>
+          )}
           {isStaff(me, "reviewer") && (
             <Link className="btn-secondary" href="/review">
               {t("reviewQueue")}

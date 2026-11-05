@@ -16,9 +16,16 @@ export default function Header() {
         <nav className="flex items-center gap-2">
           {!loading &&
             (me ? (
-              <Link className="btn-secondary text-sm max-w-40 truncate" href="/account">
-                {me.display_name}
-              </Link>
+              <>
+                {me.role === "admin" && (
+                  <Link className="btn-secondary text-sm" href="/admin">
+                    {t("role_admin")}
+                  </Link>
+                )}
+                <Link className="btn-secondary text-sm max-w-40 truncate" href="/account">
+                  {me.display_name}
+                </Link>
+              </>
             ) : (
               <Link className="btn-secondary text-sm" href="/login">
                 {t("login")}
