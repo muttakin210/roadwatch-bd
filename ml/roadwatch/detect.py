@@ -13,8 +13,10 @@ import numpy as np
 from .types import CLASSES, Detection
 
 # COCO → unified classes, for the Phase-1 prototype with un-fine-tuned COCO weights.
+# HF RT-DETR (PekingU/rtdetr_*) labels COCO class 3 with the Pascal-VOC name "motorbike", while
+# Ultralytics and RF-DETR say "motorcycle"; without both keys the default detector drops every motorbike.
 COCO_TO_UNIFIED = {"person": "person", "bicycle": "bicycle", "car": "car", "motorcycle": "motorcycle",
-                   "bus": "bus", "truck": "truck"}
+                   "motorbike": "motorcycle", "bus": "bus", "truck": "truck"}
 
 
 class Detector(Protocol):
