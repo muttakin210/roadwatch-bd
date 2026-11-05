@@ -6,6 +6,8 @@ import path from "node:path";
 // sets a new password, logs the user in and can't be used twice.
 const root = path.resolve(__dirname, "..", "..");
 const py = path.join(root, "ml", ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
+// manage.py must use the same database as the test backend (playwright.config.ts starts it on data/e2e)
+const testEnv = { ...process.env, ROADWATCH_DATA: process.env.ROADWATCH_DATA ?? path.join(root, "data", "e2e") };
 
 test("forgot password → reset link → new password works, old one doesn't", async ({ page, browser }) => {
   const email = `e2e-reset-${Date.now()}@example.com`;
@@ -30,14 +32,14 @@ test("forgot password → reset link → new password works, old one doesn't", a
   await p.getByRole("button", { name: "Send reset link" }).click();
   await expect(p.getByRole("status").filter({ hasText: /reset link/ })).toBeVisible();
 
-  const link = execFileSync(py, ["manage.py", "reset-link", email], { cwd: path.join(root, "backend") })
+  const link = execFileSync(py, ["manage.py", "reset-link", email], { cwd: path.join(root, "backend"), env: testEnv })
     .toString()
     .trim();
   expect(link).toMatch(/^\/reset\?token=/);
 
   await p.goto(link);
   const f = p.locator("form:visible");
-  await f.getByLabel("New password", { exact: true }).fill(newPw);
+  await f.getByLabel(/^New password/).fill(newPw);
   await f.getByLabel("Repeat the new password").fill("something else entirely");
   await f.getByRole("button", { name: "Save new password" }).click();
   await expect(p.getByRole("alert").filter({ hasText: "not the same" })).toBeVisible();
@@ -48,7 +50,7 @@ test("forgot password → reset link → new password works, old one doesn't", a
 
   // the link was one-time
   await p.goto(link);
-  await p.locator("form:visible").getByLabel("New password", { exact: true }).fill("yet another password");
+  await p.locator("form:visible").getByLabel(/^New password/).fill("yet another password");
   await p.locator("form:visible").getByLabel("Repeat the new password").fill("yet another password");
   await p.getByRole("button", { name: "Save new password" }).click();
   await expect(p.getByText("invalid or has expired")).toBeVisible();

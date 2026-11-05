@@ -5,6 +5,8 @@ import path from "node:path";
 // Sign up → promote with manage.py (the only way to make the first admin) → every admin tab loads.
 const root = path.resolve(__dirname, "..", "..");
 const py = path.join(root, "ml", ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
+// manage.py must use the same database as the test backend (playwright.config.ts starts it on data/e2e)
+const testEnv = { ...process.env, ROADWATCH_DATA: process.env.ROADWATCH_DATA ?? path.join(root, "data", "e2e") };
 
 test("admin panel: only admins, all tabs load, actions are logged", async ({ page }) => {
   const email = `e2e-admin-${Date.now()}@example.com`;
@@ -21,7 +23,7 @@ test("admin panel: only admins, all tabs load, actions are logged", async ({ pag
   await page.goto("/admin");
   await expect(page.getByText("You don't have access to this page.")).toBeVisible(); // plain user
 
-  execFileSync(py, ["manage.py", "set-role", email, "admin"], { cwd: path.join(root, "backend") });
+  execFileSync(py, ["manage.py", "set-role", email, "admin"], { cwd: path.join(root, "backend"), env: testEnv });
   await page.goto("/login");
   await form().getByLabel("Email").fill(email);
   await form().getByLabel("Password").fill(pw);
@@ -49,5 +51,5 @@ test("admin panel: only admins, all tabs load, actions are logged", async ({ pag
   await page.getByRole("button", { name: "English" }).click();
 
   // tidy up: don't leave an extra admin account behind on the dev database
-  execFileSync(py, ["manage.py", "set-role", email, "user"], { cwd: path.join(root, "backend") });
+  execFileSync(py, ["manage.py", "set-role", email, "user"], { cwd: path.join(root, "backend"), env: testEnv });
 });
