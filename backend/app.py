@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 import accounts
@@ -60,6 +60,15 @@ with db() as c:
     c.executescript((Path(__file__).with_name("schema_sqlite.sql")).read_text())
 accounts.setup(db)
 app.include_router(accounts.router)
+
+
+@app.middleware("http")
+async def only_via_proxy(request: Request, call_next):
+    """With ROADWATCH_PROXY_SECRET set (public deployment), refuse anything that didn't come through the
+    web app's proxy: the tunnel URL alone gives no access to the API or the bare upload page."""
+    if accounts.PROXY_SECRET and not accounts.from_proxy(request):
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    return await call_next(request)
 
 
 # --------------------------------------------------------------------------- worker
@@ -145,7 +154,7 @@ def index():
 
 
 def _rate_limit(request: Request) -> None:
-    ip = request.client.host if request.client else "?"
+    ip = accounts.client_ip(request)
     day = time.strftime("%Y-%m-%d")
     with _lock:
         if _ip_counts[(ip, day)] >= DAILY_LIMIT_PER_IP:
