@@ -1,0 +1,190 @@
+{
+ "name": "badodd_video_v1",
+ "created": "2026-11-05",
+ "about": "BadODD re-split so that every video lies in exactly one of train/val/test; sizes, per-class box shares and night share matched to the official split. Built by scripts/make_group_split.py.",
+ "source": "BadODD (Zenodo 13823687, CC BY 4.0) converted by scripts/convert_datasets.py; official train+val+test pooled.",
+ "group_by": "video = image file name without its trailing _<frame>",
+ "search": {
+  "seed": 0,
+  "trials": 20000,
+  "cost": 1.1807
+ },
+ "splits": {
+  "train": [
+   "dhaka2",
+   "dhaka3",
+   "dhaka_night1",
+   "dhaka_night3",
+   "khulna1",
+   "khulna3",
+   "khulna4",
+   "khulna6",
+   "maowa_expressway1",
+   "maowa_expressway3",
+   "maowa_expressway4",
+   "mymensingh1",
+   "mymensingh5",
+   "rajshahi1",
+   "rajshahi2",
+   "sherpur1",
+   "sherpur3",
+   "sylhet2",
+   "sylhet3",
+   "sylhet4",
+   "sylhet5"
+  ],
+  "val": [
+   "chittagong_bohoddarhat1",
+   "chittagong_bohoddarhat2",
+   "chittagong_night1",
+   "dhaka1",
+   "dhaka5_khilkhet",
+   "dhaka_night4",
+   "khulna7",
+   "mymensingh2",
+   "mymensingh6",
+   "rajshahi4",
+   "rajshahi5"
+  ],
+  "test": [
+   "chuadanga_sirajganj1",
+   "dhaka4",
+   "dhaka_night2",
+   "khulna2",
+   "khulna5",
+   "khulna8",
+   "maowa_expressway2",
+   "mymensingh3",
+   "mymensingh4",
+   "rajshahi3",
+   "sherpur2",
+   "sylhet1"
+  ]
+ },
+ "summary": {
+  "video_split": {
+   "train": {
+    "videos": 21,
+    "images": 5967,
+    "night_images": 950,
+    "boxes": {
+     "person": 18988,
+     "bicycle": 712,
+     "rickshaw": 6084,
+     "motorcycle": 3768,
+     "cng_autorickshaw": 11287,
+     "car": 3682,
+     "bus": 1731,
+     "truck": 2054,
+     "ambulance": 204,
+     "other": 160
+    }
+   },
+   "val": {
+    "videos": 11,
+    "images": 2031,
+    "night_images": 705,
+    "boxes": {
+     "person": 5913,
+     "bicycle": 219,
+     "rickshaw": 1669,
+     "motorcycle": 1047,
+     "cng_autorickshaw": 3973,
+     "car": 1421,
+     "bus": 613,
+     "truck": 836,
+     "ambulance": 61,
+     "other": 64
+    }
+   },
+   "test": {
+    "videos": 12,
+    "images": 2034,
+    "night_images": 50,
+    "boxes": {
+     "person": 6115,
+     "bicycle": 264,
+     "rickshaw": 1911,
+     "motorcycle": 1457,
+     "cng_autorickshaw": 2560,
+     "car": 1233,
+     "bus": 752,
+     "truck": 973,
+     "ambulance": 104,
+     "other": 55
+    }
+   }
+  },
+  "official_split": {
+   "train": {
+    "videos": 44,
+    "images": 5967,
+    "night_images": 1035,
+    "boxes": {
+     "person": 18268,
+     "bicycle": 678,
+     "rickshaw": 5732,
+     "motorcycle": 3771,
+     "cng_autorickshaw": 10642,
+     "car": 3786,
+     "bus": 1885,
+     "truck": 2304,
+     "ambulance": 230,
+     "other": 168
+    }
+   },
+   "val": {
+    "videos": 44,
+    "images": 2032,
+    "night_images": 343,
+    "boxes": {
+     "person": 6423,
+     "bicycle": 261,
+     "rickshaw": 1948,
+     "motorcycle": 1235,
+     "cng_autorickshaw": 3661,
+     "car": 1314,
+     "bus": 591,
+     "truck": 777,
+     "ambulance": 73,
+     "other": 54
+    }
+   },
+   "test": {
+    "videos": 42,
+    "images": 2033,
+    "night_images": 327,
+    "boxes": {
+     "person": 6325,
+     "bicycle": 256,
+     "rickshaw": 1984,
+     "motorcycle": 1266,
+     "cng_autorickshaw": 3517,
+     "car": 1236,
+     "bus": 620,
+     "truck": 782,
+     "ambulance": 66,
+     "other": 57
+    }
+   }
+  }
+ },
+ "leakage": {
+  "official_split": {
+   "test_images": 2033,
+   "with_same_video_frame": 2033,
+   "median_gap_frames": 59,
+   "p10_gap_frames": 29,
+   "p90_gap_frames": 167,
+   "within_30_frames": 577
+  },
+  "video_split": {
+   "test_images": 2034,
+   "with_same_video_frame": 0,
+   "median_gap_frames": null,
+   "p10_gap_frames": null,
+   "p90_gap_frames": null,
+   "within_30_frames": 0
+  }
+ }
+}
