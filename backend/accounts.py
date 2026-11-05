@@ -32,6 +32,8 @@ from typing import Callable, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+import fine_rules
+
 router = APIRouter()
 _db: Callable[[], sqlite3.Connection] | None = None
 
@@ -422,6 +424,8 @@ def _case_json(c: sqlite3.Connection, r: sqlite3.Row, *, staff: bool) -> dict:
     out = {k: r[k] for k in ("id", "event_id", "video_id", "status", "uploader_note", "created_at", "review_note",
                              "reviewed_at", "fine_bdt", "decided_at")}
     out["event"] = dict(e) if e else None
+    # which law the flagged event breaks and its legal maximum fine (a suggestion: staff confirm every case)
+    out["law"] = fine_rules.for_event(e["type"] if e else None)
     if staff:   # reviewers/police: contact only if the uploader opted in
         up = c.execute("SELECT * FROM users WHERE id=?", (r["uploader_id"],)).fetchone()
         out["police_ref"] = r["police_ref"]
@@ -549,6 +553,12 @@ def police_decide(cid: str, d: PoliceDecision, u: sqlite3.Row = Depends(require_
         if r["uploader_id"] == u["id"]:
             raise HTTPException(403, "you can't decide your own report")
         fine = d.fine_bdt if d.decision == "fined" else None
+        if fine:   # never above what the Road Transport Act 2018 allows for this offence
+            ev = c.execute("SELECT type FROM events WHERE id=?", (r["event_id"],)).fetchone()
+            law = fine_rules.for_event(ev["type"] if ev else None)
+            if law and fine > law["max_bdt"]:
+                raise HTTPException(400, f"the legal maximum for this offence is Tk {law['max_bdt']:,} "
+                                         f"(s.{law['penalty']}, Road Transport Act 2018)")
         n = c.execute("UPDATE cases SET status=?, police_id=?, police_ref=?, fine_bdt=?, decided_at=? "
                       "WHERE id=? AND status='confirmed'",
                       (d.decision, u["id"], (d.police_ref or "").strip() or None, fine, time.time(), cid)).rowcount

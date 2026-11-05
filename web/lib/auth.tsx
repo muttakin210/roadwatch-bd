@@ -19,6 +19,8 @@ export type Case = {
   fine_bdt: number | null;
   event: { type: string; vehicle_class: string | null; start_s: number; end_s: number; confidence: number | null; reason: string } | null;
   police_ref?: string | null;
+  /** the law the AI event breaks (Road Transport Act 2018) and its legal maximum fine: a suggestion only */
+  law?: { rule_id: string; rule: string; penalty: string; max_bdt: number; en: string; bn: string } | null;
   own?: boolean;
   uploader?: { name: string | null; contact: { email: string; phone: string | null } | null };
 };

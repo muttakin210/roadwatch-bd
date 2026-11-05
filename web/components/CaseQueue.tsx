@@ -46,7 +46,8 @@ export default function CaseQueue({ kind }: { kind: "review" | "police" }) {
 function CaseItem({ c, kind, onDone }: { c: Case; kind: "review" | "police"; onDone: () => void }) {
   const { t, lang } = useT();
   const [note, setNote] = useState("");
-  const [fine, setFine] = useState("");
+  // pre-filled with the legal maximum for this offence; police may lower it (never raise it above the law)
+  const [fine, setFine] = useState(c.law ? String(c.law.max_bdt) : "");
   const [ref, setRef] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,6 +81,17 @@ function CaseItem({ c, kind, onDone }: { c: Case; kind: "review" | "police"; onD
         {t("uploadedBy")}: {c.uploader?.name ?? t("anonymous")} · {t("contact")}:{" "}
         {c.uploader?.contact ? [c.uploader.contact.email, c.uploader.contact.phone].filter(Boolean).join(", ") : t("notShared")}
       </p>
+      {c.law && (
+        <p className="text-sm rounded-lg bg-amber-50 border border-amber-300 p-2">
+          {t("lawBroken")}: <b>{c.law[lang]}</b> ·{" "}
+          {lang === "bn" ? `ধারা ${num(c.law.rule, lang)} → ধারা ${num(c.law.penalty, lang)}` : `s.${c.law.rule} → s.${c.law.penalty}`} ·{" "}
+          {t("legalMax")} {taka(c.law.max_bdt, lang)} ·{" "}
+          <Link className="underline" href={`/rules#${c.law.rule_id}`} target="_blank">
+            {t("navRules")}
+          </Link>
+          <span className="block text-xs text-muted">{t("lawSuggestNote")}</span>
+        </p>
+      )}
       <Link className="btn-secondary text-sm" href={`/v/${c.video_id}`} target="_blank">
         {t("watchVideo")}
       </Link>
@@ -103,7 +115,7 @@ function CaseItem({ c, kind, onDone }: { c: Case; kind: "review" | "police"; onD
             void act({ decision: "fined", fine_bdt: Number(fine), police_ref: ref });
           }}
         >
-          <input className="input sm:w-32" type="number" min={1} max={100000} required value={fine} onChange={(x) => setFine(x.target.value)} placeholder={t("fineAmount")} aria-label={t("fineAmount")} />
+          <input className="input sm:w-32" type="number" min={1} max={c.law?.max_bdt ?? 100000} required value={fine} onChange={(x) => setFine(x.target.value)} placeholder={t("fineAmount")} aria-label={t("fineAmount")} />
           <input className="input flex-1" value={ref} onChange={(x) => setRef(x.target.value)} placeholder={t("policeRef")} aria-label={t("policeRef")} maxLength={100} />
           <button type="submit" className="btn-primary" disabled={busy}>
             {t("issueFine")}
