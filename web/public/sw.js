@@ -1,7 +1,12 @@
 // RoadWatch BD service worker: makes the site installable and fast to reopen.
 // Caches only the app shell. Never caches /api/ (videos, results, accounts are always fetched live).
-const VERSION = "rw-v1";
-const SHELL = ["/", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
+// The road map and traffic rules work offline: their pages and the place-name list are kept, and the map pack
+// the user chose to save lives in its own cache ("rw-offline-map", written by the map page) that updates keep.
+const VERSION = "rw-v2";
+const KEEP = ["rw-offline-map"];
+const SHELL = ["/", "/map", "/rules", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
+// public pages with no personal data in their HTML (login state is fetched separately), safe to keep offline
+const OFFLINE_PAGES = ["/", "/map", "/rules"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -10,7 +15,7 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION && !KEEP.includes(k)).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -39,11 +44,31 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
+  // The place-name list (for offline search): network first so it stays current, the copy when offline.
+  if (url.pathname.startsWith("/geo/")) {
+    e.respondWith(
+      fetch(req).then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(VERSION).then((c) => c.put(req, copy));
+        }
+        return res;
+      }).catch(() => caches.match(req).then((hit) => hit || Response.error())),
+    );
+    return;
+  }
+
   // Pages: always try the network (fresh content, current login state); fall back when offline.
   if (req.mode === "navigate") {
     e.respondWith(
-      fetch(req).catch(() =>
-        caches.match(req).then((hit) => hit || caches.match("/")).then(
+      fetch(req).then((res) => {
+        if (res.ok && OFFLINE_PAGES.includes(url.pathname)) {
+          const copy = res.clone();
+          caches.open(VERSION).then((c) => c.put(url.pathname, copy));
+        }
+        return res;
+      }).catch(() =>
+        caches.match(url.pathname).then((hit) => hit || caches.match("/")).then(
           (hit) => hit || new Response(OFFLINE, { headers: { "Content-Type": "text/html; charset=utf-8" } }),
         ),
       ),
