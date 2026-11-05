@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getEvents, getVideo, reportVideo, sendFeedback, type Note, type RoadEvent, type VideoStatus } from "@/lib/api";
+import { CaseBadge } from "@/components/AccountPanel";
+import { getEvents, getVideo, reportVideo, sendFeedback, submitCase, type Note, type RoadEvent, type VideoStatus } from "@/lib/api";
 import { fmtTime, num, useT, type Lang } from "@/lib/i18n";
 
 const STEPS = ["queued", "starting", "checking video", "detecting", "analysing", "rendering", "done"];
@@ -144,6 +145,18 @@ function Results({ id, v }: { id: string; v: VideoStatus }) {
   return (
     <section className="space-y-5">
       <h2 className="text-xl font-semibold">{t("results")}</h2>
+      {v.uploader !== undefined && (
+        <p className="text-sm text-muted">
+          {t("uploadedBy")}:{" "}
+          {v.uploader?.profile_id ? (
+            <Link className="underline" href={`/u/${v.uploader.profile_id}`}>
+              {v.uploader.name}
+            </Link>
+          ) : (
+            v.uploader?.name ?? t("anonymous")
+          )}
+        </p>
+      )}
       <video ref={video} src={`/api/videos/${id}/annotated`} controls playsInline className="w-full max-h-[70vh] rounded-lg bg-black" />
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -191,7 +204,7 @@ function Results({ id, v }: { id: string; v: VideoStatus }) {
         {events.length === 0 && <p>{t("noEvents")}</p>}
         <ul className="space-y-2">
           {events.map((e) => (
-            <EventItem key={e.id} e={e} onJump={() => jump(e.start_s)} />
+            <EventItem key={e.id} e={e} owner={!!v.is_owner} onJump={() => jump(e.start_s)} />
           ))}
         </ul>
       </div>
@@ -246,7 +259,7 @@ function reasonText(e: RoadEvent, t: (k: string) => string, lang: Lang): string 
   return text;
 }
 
-function EventItem({ e, onJump }: { e: RoadEvent; onJump: () => void }) {
+function EventItem({ e, owner, onJump }: { e: RoadEvent; owner: boolean; onJump: () => void }) {
   const { t, lang } = useT();
   const [sent, setSent] = useState<string | null>(null);
   const uncertain = e.details?.shown === false;
@@ -263,6 +276,7 @@ function EventItem({ e, onJump }: { e: RoadEvent; onJump: () => void }) {
         </span>
       </button>
       <p className="text-sm text-muted mt-1">{reasonText(e, t, lang)}</p>
+      {e.verified && <p className="text-sm text-green-800 mt-1">✓ {t("verified")}</p>}
       <div className="flex flex-wrap gap-2 mt-2">
         {(["correct", "wrong", "wrong_type"] as const).map((verdict) => (
           <button
@@ -280,7 +294,46 @@ function EventItem({ e, onJump }: { e: RoadEvent; onJump: () => void }) {
           </button>
         ))}
       </div>
+      {owner && e.reportable && <CaseControl e={e} />}
     </li>
+  );
+}
+
+/** Uploader only: send this AI event to a human reviewer (who decides whether it goes to police). */
+function CaseControl({ e }: { e: RoadEvent }) {
+  const { t } = useT();
+  const [status, setStatus] = useState<string | null>(e.case_status ?? null);
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  if (status) return <p className="text-sm mt-2"><CaseBadge status={status} /></p>;
+  if (!open)
+    return (
+      <button type="button" className="btn-secondary text-sm mt-2" onClick={() => setOpen(true)}>
+        {t("reportCase")}
+      </button>
+    );
+  return (
+    <form
+      className="mt-2 space-y-2"
+      onSubmit={async (x) => {
+        x.preventDefault();
+        try {
+          setStatus((await submitCase(e.id, note.trim())).status);
+        } catch (ex) {
+          setErr(ex instanceof Error ? ex.message : "error");
+        }
+      }}
+    >
+      <p className="text-xs text-muted">{t("reportCaseHint")}</p>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input className="input flex-1" value={note} onChange={(x) => setNote(x.target.value)} placeholder={t("caseNote")} aria-label={t("caseNote")} maxLength={1000} />
+        <button type="submit" className="btn-primary">
+          {t("reportCase")}
+        </button>
+      </div>
+      {err && <p className="text-sm text-red-700">{err}</p>}
+    </form>
   );
 }
 

@@ -25,6 +25,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
+import accounts
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ml"))
 
@@ -55,6 +57,8 @@ def db() -> sqlite3.Connection:
 
 with db() as c:
     c.executescript((Path(__file__).with_name("schema_sqlite.sql")).read_text())
+accounts.setup(db)
+app.include_router(accounts.router)
 
 
 # --------------------------------------------------------------------------- worker
@@ -130,15 +134,15 @@ def _rate_limit(request: Request) -> None:
 
 
 def _register(video_id: str, key: str, hints: dict, camera_type: str, consent: bool,
-              lat: float | None, lng: float | None) -> dict:
+              lat: float | None, lng: float | None, user_id: str | None = None) -> dict:
     if camera_type not in CAMERA_TYPES:
         raise HTTPException(400, f"camera_type must be one of {sorted(CAMERA_TYPES)}")
     hints = dict(hints)
     hints["camera_type"] = camera_type
     with db() as c:
-        c.execute("INSERT INTO videos(id, storage_key, camera_type, lat, lng, location_source, status, "
-                  "moderation_status, consent_training, hints, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                  (video_id, key, camera_type, lat, lng, "user" if lat is not None else "none", "uploaded",
+        c.execute("INSERT INTO videos(id, user_id, storage_key, camera_type, lat, lng, location_source, status, "
+                  "moderation_status, consent_training, hints, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (video_id, user_id, key, camera_type, lat, lng, "user" if lat is not None else "none", "uploaded",
                    "pending", int(consent), json.dumps(hints), time.time()))
     _enqueue(video_id)
     return {"id": video_id}
@@ -212,6 +216,8 @@ async def create_video(request: Request):
     """JSON {upload_id, ...} after a chunked upload, or legacy multipart (bare prototype page)."""
     video_id = uuid.uuid4().hex
     key = f"{video_id}.bin"   # never trust the client's file name or extension
+    me = accounts.current_user(request)   # anonymous uploads stay allowed; logged-in ones are owned
+    uid = me["id"] if me else None
     if request.headers.get("content-type", "").startswith("application/json"):
         try:
             v = VideoCreate(**await request.json())
@@ -226,7 +232,7 @@ async def create_video(request: Request):
             raise HTTPException(409, "upload incomplete")
         part.replace(UPLOADS / key)
         meta.unlink()
-        return _register(video_id, key, v.hints, v.camera_type, v.consent_training, v.lat, v.lng)
+        return _register(video_id, key, v.hints, v.camera_type, v.consent_training, v.lat, v.lng, uid)
 
     form = await request.form()
     file = form.get("file")
@@ -249,7 +255,7 @@ async def create_video(request: Request):
     lat, lng = form.get("lat"), form.get("lng")
     return _register(video_id, key, h, form.get("camera_type") or "footbridge",
                      str(form.get("consent_training")).lower() == "true",
-                     float(lat) if lat else None, float(lng) if lng else None)
+                     float(lat) if lat else None, float(lng) if lng else None, uid)
 
 
 @app.get("/api/videos/{vid}/events.json")
@@ -264,14 +270,19 @@ def events_json(vid: str):
 
 
 @app.get("/api/videos/{vid}")
-def get_video(vid: str):
+def get_video(vid: str, request: Request):
+    me = accounts.current_user(request)
     with db() as c:
-        v = c.execute("SELECT id, status, duration_s, camera_type, created_at FROM videos WHERE id=?", (vid,)).fetchone()
+        v = c.execute("SELECT id, user_id, status, duration_s, camera_type, created_at FROM videos WHERE id=?",
+                      (vid,)).fetchone()
         if not v:
             raise HTTPException(404)
         r = c.execute("SELECT congestion_avg, camera_motion_class, scene_summary FROM results WHERE video_id=? "
                       "ORDER BY rowid DESC LIMIT 1", (vid,)).fetchone()
-    out = dict(v) | {"progress": _progress.get(vid)}
+        uploader = accounts.uploader_json(c, v["user_id"])
+    out = {k: v[k] for k in ("id", "status", "duration_s", "camera_type", "created_at")} | {
+        "progress": _progress.get(vid), "uploader": uploader,
+        "is_owner": bool(me and v["user_id"] and me["id"] == v["user_id"])}
     if r:
         out |= {"congestion_avg": r["congestion_avg"], "camera_motion": r["camera_motion_class"],
                 "summary": json.loads(r["scene_summary"] or "{}"), "notes": _notes(vid)}
@@ -293,16 +304,24 @@ def _notes(vid: str) -> list[dict]:
 
 
 @app.get("/api/videos/{vid}/events")
-def get_events(vid: str, include_uncertain: int = 0):
+def get_events(vid: str, request: Request, include_uncertain: int = 0):
+    me = accounts.current_user(request)
     with db() as c:
         job = c.execute("SELECT job_id FROM results WHERE video_id=? ORDER BY rowid DESC LIMIT 1", (vid,)).fetchone()
         if not job:
             return {"events": []}
-        rows = c.execute("SELECT id, type, subtype, vehicle_class, track_id, start_s, end_s, confidence, severity, "
-                         "reason, details FROM events WHERE job_id=? ORDER BY start_s", (job["job_id"],)).fetchall()
+        owner = c.execute("SELECT user_id FROM videos WHERE id=?", (vid,)).fetchone()
+        is_owner = bool(me and owner and owner["user_id"] == me["id"])
+        rows = c.execute("SELECT e.id, e.type, e.subtype, e.vehicle_class, e.track_id, e.start_s, e.end_s, e.confidence, "
+                         "e.severity, e.reason, e.details, e.verified, k.status AS case_status FROM events e "
+                         "LEFT JOIN cases k ON k.event_id = e.id WHERE e.job_id=? ORDER BY e.start_s",
+                         (job["job_id"],)).fetchall()
     evs = []
     for r in rows:
-        d = dict(r) | {"details": json.loads(r["details"] or "{}")}
+        d = dict(r) | {"details": json.loads(r["details"] or "{}"), "verified": bool(r["verified"]),
+                       "reportable": r["type"] in accounts.CASE_TYPES}
+        if not is_owner:   # a case's progress is the uploader's business
+            d.pop("case_status")
         if include_uncertain or d["details"].get("shown", True):
             evs.append(d)
     return {"events": evs, "label": "possible incident (AI-detected, may be wrong)"}
@@ -343,10 +362,14 @@ def annotated(vid: str):
 
 
 @app.post("/api/videos/{vid}/reanalyse")
-def reanalyse(vid: str):
+def reanalyse(vid: str, request: Request):
+    me = accounts.current_user(request)
     with db() as c:
-        if not c.execute("SELECT 1 FROM videos WHERE id=?", (vid,)).fetchone():
+        v = c.execute("SELECT user_id FROM videos WHERE id=?", (vid,)).fetchone()
+        if not v:
             raise HTTPException(404)
+        if v["user_id"] and not (me and (me["id"] == v["user_id"] or me["role"] in ("reviewer", "admin"))):
+            raise HTTPException(403, "only the uploader can re-analyse this video")
     return {"job_id": _enqueue(vid)}   # old results are kept; a new result row is added
 
 

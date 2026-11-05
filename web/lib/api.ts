@@ -18,6 +18,12 @@ export type RoadEvent = {
   severity?: string | null;
   reason: string;
   details: Record<string, unknown> & { shown?: boolean };
+  /** a reviewer confirmed it */
+  verified?: boolean;
+  /** can be reported to police (offences only, not congestion) */
+  reportable?: boolean;
+  /** only returned to the uploader */
+  case_status?: string | null;
 };
 
 export type Summary = Record<string, { events: number; distinct_vehicles: number | null; by_class: Record<string, number>; total_s: number }>;
@@ -33,6 +39,9 @@ export type VideoStatus = {
   summary?: Summary;
   /** Road-level notes: translatable key + args, with the English text as fallback. */
   notes?: Note[];
+  /** name is null when the uploader is anonymous; profile_id only if their profile is public */
+  uploader?: { name: string | null; profile_id: string | null } | null;
+  is_owner?: boolean;
 };
 
 export type Note = { k?: string; en: string } & Record<string, string | undefined>;
@@ -141,6 +150,16 @@ export async function sendFeedback(eventId: string, verdict: "correct" | "wrong"
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ verdict }),
+    }),
+  );
+}
+
+export async function submitCase(eventId: string, note: string) {
+  return json<{ id: string; status: string }>(
+    await fetch(`/api/events/${eventId}/case`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note }),
     }),
   );
 }

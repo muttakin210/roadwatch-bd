@@ -1,11 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import ArrowCanvas from "@/components/ArrowCanvas";
 import type { LatLng } from "@/components/LocationPicker";
 import { createVideo, uploadResumable } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { compressVideo, shouldCompress } from "@/lib/compress";
 import { fmtTime, num, useT } from "@/lib/i18n";
 
@@ -27,6 +29,7 @@ const CAMERAS = ["footbridge", "roadside", "cctv", "vehicle"] as const;
 
 export default function UploadForm() {
   const { t, lang } = useT();
+  const { me, loading: authLoading } = useAuth();
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -254,6 +257,13 @@ export default function UploadForm() {
           {phase.k === "error" ? t("tryAgain") : t("submit")}
         </button>
       </div>
+      {!authLoading && !me && (
+        <p className="text-sm">
+          <Link className="underline" href="/login?next=/">
+            {t("loginToOwn")}
+          </Link>
+        </p>
+      )}
       <p className="text-sm text-muted">{t("disclaimer")}</p>
     </form>
   );
