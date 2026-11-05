@@ -11,6 +11,7 @@ import pytest
 @pytest.fixture()
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("ROADWATCH_DATA", str(tmp_path))
+    monkeypatch.setenv("ROADWATCH_NEWS", "0")   # no newspaper fetching in tests
     sys.path.insert(0, str(Path(__file__).parent))
     app_mod = importlib.reload(importlib.import_module("app"))
 
@@ -160,6 +161,10 @@ def test_report_review_police_reward_flow(env):
     assert pol.post(f"/api/police/cases/{case['id']}", json={"decision": "fined"}).status_code == 400
     assert pol.post(f"/api/police/cases/{case['id']}",
                     json={"decision": "fined", "fine_bdt": 10 ** 9}).status_code == 422
+    q = pol.get("/api/police/cases").json()["cases"]          # the law the AI event breaks, as a suggestion
+    assert q[0]["law"]["penalty"] == "92(1)" and q[0]["law"]["max_bdt"] == 10_000
+    over = pol.post(f"/api/police/cases/{case['id']}", json={"decision": "fined", "fine_bdt": 10_001})
+    assert over.status_code == 400 and "legal maximum" in over.json()["detail"]   # wrong-way: max Tk 10,000
     r = pol.post(f"/api/police/cases/{case['id']}", json={"decision": "fined", "fine_bdt": 5000, "police_ref": "DMP-1"})
     assert r.json() == {"id": case["id"], "status": "fined", "reward_bdt": 1000}
     assert pol.post(f"/api/police/cases/{case['id']}",
