@@ -52,6 +52,26 @@ def test_low_iou_is_not_a_match():
     assert tp.tolist() == [False]
 
 
+def test_video_of_reads_badodd_file_names():
+    assert ed.video_of("chittagong_bohoddarhat1_10384.jpg") == "chittagong_bohoddarhat1"
+    assert ed.video_of("frame.jpg") == "frame"
+
+
+def test_image_bootstrap_draw_is_unchanged():
+    # earlier results (image bootstrap, seed 0) must be reproducible after the video option was added
+    old = np.bincount(np.random.default_rng(0).integers(0, 5, 5), minlength=5).astype(float)
+    assert ed.bootstrap_weights(np.random.default_rng(0), None, 5).tolist() == old.tolist()
+
+
+def test_video_bootstrap_moves_whole_videos():
+    groups = ["a", "a", "b", "c", "c", "c"]
+    rng = np.random.default_rng(3)
+    for _ in range(20):
+        w = ed.bootstrap_weights(rng, groups, len(groups))
+        assert w[0] == w[1] and w[3] == w[4] == w[5]   # frames of a video share one weight
+        assert w[[0, 2, 3]].sum() == 3                  # three videos drawn per sample
+
+
 def test_iou_matrix_shapes():
     assert ed.iou_matrix(np.zeros((0, 4)), np.zeros((3, 4))).shape == (0, 3)
     assert ed.iou_matrix(np.array([[0, 0, 2, 2.]]), np.array([[1, 1, 3, 3.]]))[0, 0] == pytest.approx(1 / 7)
