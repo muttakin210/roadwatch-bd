@@ -28,7 +28,7 @@ export default defineConfig({
       command: `"${py}" -m uvicorn app:app --port ${apiPort}`,
       cwd: path.join(root, "backend"),
       url: `http://127.0.0.1:${apiPort}/`,
-      env: { ROADWATCH_DATA: path.join(root, "data", "e2e"), PYTHONIOENCODING: "utf-8", ROADWATCH_NEWS: "0" },
+      env: { ROADWATCH_DATA: path.join(root, "data", "e2e"), PYTHONIOENCODING: "utf-8", ROADWATCH_NEWS: "0", ROADWATCH_AUTH_LIMIT: "500" },
       reuseExistingServer: true,
       timeout: 60_000,
       stdout: "pipe",
