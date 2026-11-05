@@ -84,3 +84,22 @@ Env: `ROADWATCH_DETECTOR=hf|rfdetr|ultralytics`, `ROADWATCH_DAILY_LIMIT=20`, `RO
 2. `scripts/convert_datasets.py` → DhakaAI / Poribohon-BD / BadODD to the unified classes.
 3. `scripts/mine_candidates.py` → loose-threshold candidates CSV; a person fills `verdict`.
 4. `scripts/fit_calibration.py` → location-wise CV ECE + `models/calibration.json`.
+
+## Training the Bangladeshi detector
+BadODD (CC BY 4.0, 9,825 road images from 9 districts) is the first training set; licences of
+all candidate datasets are in `docs/dataset_card.md`.
+
+```
+cd ml
+# BadODD from Zenodo record 13823687 → data/datasets/badodd/extracted, then:
+python scripts/convert_datasets.py --dataset badodd --src ../data/datasets/badodd/extracted --dst ../data/processed/badodd
+python scripts/train_detector.py --data ../data/processed/badodd --out models/rtdetr_bd     # needs a GPU
+python -m roadwatch.pipeline clip.mp4 --out ../data/processed/test --weights models/rtdetr_bd/best --fresh
+```
+
+No GPU here? Run `ml/notebooks/train_rtdetr_kaggle.ipynb` on Kaggle (free T4): it downloads
+BadODD, converts it, trains and gives you `rtdetr_bd_best.zip` to unzip into `ml/models/`.
+
+Known limits: BadODD's "Auto Rickshaw" mixes CNGs, easybikes and legunas, so all become
+`cng_autorickshaw`; it has no leguna or rickshaw-van class; and it is dashcam footage, so
+check the model on footbridge clips before trusting it.

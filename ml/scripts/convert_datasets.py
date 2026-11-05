@@ -1,8 +1,10 @@
 """Map each dataset's labels to the unified class list (PLAN §4.4) and write YOLO-format labels.
 
     python scripts/convert_datasets.py --dataset dhakaai --src D:/datasets/DhakaAI --dst ../data/processed/dhakaai
+    python scripts/convert_datasets.py --dataset badodd --src ../data/datasets/badodd/extracted --dst ../data/processed/badodd
 
-Input: Pascal-VOC XML (DhakaAI, Poribohon-BD) or COCO JSON (--coco file.json).
+Input: Pascal-VOC XML (DhakaAI, Poribohon-BD), YOLO txt with train/val/test folders (BadODD),
+or COCO JSON (--coco file.json).
 Unknown labels are reported and skipped — add them to MAPS rather than guessing.
 Check each dataset's licence first and record it in docs/dataset_card.md.
 """
@@ -10,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import xml.etree.ElementTree as ET
@@ -34,7 +37,21 @@ _COMMON = {
     "person": "person", "pedestrian": "person",
     "wheelbarrow": "other", "tractor": "other", "cart": "other", "garbagevan": "pickup",
 }
-MAPS = {"dhakaai": _COMMON, "poribohon": _COMMON, "badodd": _COMMON, "coco": {
+# BadODD (Zenodo 13823687) ships YOLO labels without a names file. Its ids are the paper's 13 class
+# names in alphabetical order; checked on 2026-11-05 against crops of every id (see docs/dataset_card.md).
+BADODD_NAMES = ["auto rickshaw", "bicycle", "bus", "car", "cart vehicle", "construction vehicle", "motorbike",
+                "person", "priority vehicle", "three-wheeler", "train", "truck", "wheelchair"]
+_BADODD = {
+    # "Auto Rickshaw" mixes CNGs, easybikes and leguna-type vehicles; all → CNG (decision 2026-11-05).
+    # Our own labelled frames must separate easybike/leguna later.
+    "auto rickshaw": "cng_autorickshaw", "three-wheeler": "rickshaw",  # three-wheeler = pedal rickshaw
+    "bicycle": "bicycle", "bus": "bus", "car": "car", "motorbike": "motorcycle", "person": "person",
+    "priority vehicle": "ambulance", "truck": "truck", "cart vehicle": "other", "construction vehicle": "other",
+}
+NL = chr(10)
+DROP = {"train", "wheelchair"}  # not road traffic for our purposes; dropped without a warning
+
+MAPS = {"dhakaai": _COMMON, "poribohon": _COMMON, "badodd": _BADODD, "coco": {
     "person": "person", "bicycle": "bicycle", "car": "car", "motorcycle": "motorcycle", "bus": "bus", "truck": "truck"}}
 
 
@@ -78,6 +95,54 @@ def convert_voc(src: Path, dst: Path, mapping: dict) -> Counter:
     return stats
 
 
+def _link_or_copy(src: Path, dst: Path) -> None:
+    """Hard-link when possible (same drive: no extra disk space), else copy."""
+    if dst.exists():
+        dst.unlink()
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
+
+
+def convert_yolo(src: Path, dst: Path, mapping: dict, names: list[str]) -> Counter:
+    """YOLO txt labels per split (src/<split>/{images,labels}) → unified ids, keeping the splits."""
+    stats, unknown = Counter(), Counter()
+    splits = [d for d in ("train", "val", "test") if (src / d / "labels").is_dir()]
+    if not splits:
+        raise SystemExit(f"no train/val/test labels folders under {src}")
+    for split in splits:
+        out_i, out_l = dst / split / "images", dst / split / "labels"
+        out_i.mkdir(parents=True, exist_ok=True); out_l.mkdir(parents=True, exist_ok=True)
+        for lp in sorted((src / split / "labels").glob("*.txt")):
+            img = next((p for p in (src / split / "images").glob(lp.stem + ".*")
+                        if p.suffix.lower() in (".jpg", ".jpeg", ".png")), None)
+            if img is None:
+                continue
+            lines = []
+            for row in lp.read_text().splitlines():
+                parts = row.split()
+                if len(parts) < 5:
+                    continue
+                name = names[int(parts[0])]
+                if name in DROP:
+                    continue
+                cls = mapping.get(name)
+                if cls is None:
+                    unknown[name] += 1
+                    continue
+                x, y, w, h = (min(max(float(v), 0.0), 1.0) for v in parts[1:5])
+                if w <= 0 or h <= 0:
+                    continue
+                lines.append(f"{CLASS_ID[cls]} {x:.6f} {y:.6f} {w:.6f} {h:.6f}")
+                stats[cls] += 1
+            _link_or_copy(img, out_i / (lp.stem + img.suffix.lower()))
+            (out_l / (lp.stem + ".txt")).write_text(NL.join(lines))
+    if unknown:
+        print("UNMAPPED labels (add to MAPS):", dict(unknown.most_common()))
+    return stats
+
+
 def convert_coco(js: Path, img_dir: Path, dst: Path, mapping: dict) -> Counter:
     d = json.loads(js.read_text(encoding="utf-8"))
     cats = {c["id"]: _norm(c["name"]) for c in d["categories"]}
@@ -111,7 +176,12 @@ def main():
     ap.add_argument("--coco", type=Path, help="COCO json (otherwise Pascal-VOC XML under --src)")
     a = ap.parse_args()
     m = MAPS[a.dataset]
-    stats = convert_coco(a.coco, a.src, a.dst, m) if a.coco else convert_voc(a.src, a.dst, m)
+    if a.coco:
+        stats = convert_coco(a.coco, a.src, a.dst, m)
+    elif a.dataset == "badodd":
+        stats = convert_yolo(a.src, a.dst, m, BADODD_NAMES)
+    else:
+        stats = convert_voc(a.src, a.dst, m)
     print("boxes per class:", dict(stats.most_common()))
     rare = [c for c, n in stats.items() if n < 300]
     if rare:
