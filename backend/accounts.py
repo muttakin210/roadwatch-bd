@@ -37,7 +37,10 @@ _db: Callable[[], sqlite3.Connection] | None = None
 
 COOKIE = "rw_session"
 SESSION_S = 30 * 24 * 3600
-SECURE_COOKIE = os.environ.get("ROADWATCH_SECURE_COOKIE") == "1"   # set behind HTTPS
+SECURE_COOKIE = os.environ.get("ROADWATCH_SECURE_COOKIE") == "1"   # always Secure (behind HTTPS only)
+# Shared secret with the web app's proxy (web/proxy.ts). When set, every /api request must carry it, and only
+# then are the proxy's client-IP / protocol headers trusted. Without it the backend must not be exposed publicly.
+PROXY_SECRET = os.environ.get("ROADWATCH_PROXY_SECRET", "")
 ROLES = ("user", "reviewer", "police", "admin")
 REWARD_SHARE = 0.20
 CASE_TYPES = {"wrong_way", "bus_midroad_stop", "u_turn"}            # congestion is not an offence
@@ -98,12 +101,29 @@ def _th(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _new_session(c: sqlite3.Connection, user_id: str, resp: Response) -> None:
+def from_proxy(request: Request) -> bool:
+    """True if the request came through our web proxy (it knows the shared secret)."""
+    got = request.headers.get("x-roadwatch-secret", "")
+    return bool(PROXY_SECRET) and hmac.compare_digest(got.encode(), PROXY_SECRET.encode())
+
+
+def client_ip(request: Request) -> str:
+    """The visitor's address. Behind the proxy every request arrives from the tunnel (127.0.0.1), so use
+    the address the proxy reports, but only when the secret proves the header wasn't forged."""
+    if from_proxy(request):
+        ip = request.headers.get("x-roadwatch-client-ip", "").strip()
+        if ip and len(ip) <= 45:
+            return ip
+    return request.client.host if request.client else "?"
+
+
+def _new_session(c: sqlite3.Connection, user_id: str, resp: Response, request: Request) -> None:
     token = secrets.token_urlsafe(32)
     now = time.time()
     c.execute("INSERT INTO sessions(token_hash, user_id, created_at, expires_at) VALUES (?,?,?,?)",
               (_th(token), user_id, now, now + SESSION_S))
-    resp.set_cookie(COOKIE, token, max_age=SESSION_S, httponly=True, samesite="lax", secure=SECURE_COOKIE, path="/")
+    https = SECURE_COOKIE or (from_proxy(request) and request.headers.get("x-roadwatch-proto") == "https")
+    resp.set_cookie(COOKIE, token, max_age=SESSION_S, httponly=True, samesite="lax", secure=https, path="/")
 
 
 def current_user(request: Request) -> sqlite3.Row | None:
@@ -146,8 +166,7 @@ def _throttle(key: str) -> None:
         a.append(now)
 
 
-def _ip(request: Request) -> str:
-    return request.client.host if request.client else "?"
+_ip = client_ip
 
 
 # --------------------------------------------------------------------------- public shapes
@@ -206,7 +225,7 @@ def signup(s: Signup, request: Request, response: Response):
                       (uid, email, hash_password(s.password), name, time.time()))
         except sqlite3.IntegrityError:
             raise HTTPException(409, "an account with this email already exists")
-        _new_session(c, uid, response)
+        _new_session(c, uid, response, request)
         return me_json(c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone())
 
 
@@ -222,7 +241,7 @@ def login(body: Login, request: Request, response: Response):
             raise HTTPException(401, "email or password is wrong")   # same answer for unknown emails
         if u["disabled"]:
             raise HTTPException(403, "this account has been disabled")
-        _new_session(c, u["id"], response)
+        _new_session(c, u["id"], response, request)
         return me_json(u)
 
 
@@ -290,7 +309,7 @@ def change_password(body: PasswordChange, request: Request, response: Response, 
     with db() as c:
         c.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(body.new), u["id"]))
         c.execute("DELETE FROM sessions WHERE user_id=?", (u["id"],))   # log out everywhere else
-        _new_session(c, u["id"], response)
+        _new_session(c, u["id"], response, request)
     return {"ok": True}
 
 

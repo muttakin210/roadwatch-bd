@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
-// The FastAPI backend (../backend). Same-origin via rewrites, so no CORS is needed.
-const API = process.env.ROADWATCH_API ?? "http://127.0.0.1:8000";
+// /api/* is forwarded to the FastAPI backend by proxy.ts (backend URL read at runtime).
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
@@ -13,9 +12,6 @@ const nextConfig: NextConfig = {
         as: "*.css",
       },
     },
-  },
-  async rewrites() {
-    return [{ source: "/api/:path*", destination: `${API}/api/:path*` }];
   },
 };
 
