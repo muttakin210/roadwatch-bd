@@ -12,3 +12,6 @@ transformers>=4.45
 #   rfdetr                (Apache-2.0)
 #   ultralytics           (AGPL-3.0 — read the licence note in roadwatch/detect.py)
 trackers>=2.6   # ByteTrack (Apache-2.0); install with --no-deps if you use opencv-python-headless
+# detector fine-tuning + mAP (scripts/train_detector.py)
+torchmetrics>=1.4
+pycocotools>=2.0.8
