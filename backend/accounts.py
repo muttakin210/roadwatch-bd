@@ -309,8 +309,102 @@ def change_password(body: PasswordChange, request: Request, response: Response, 
     with db() as c:
         c.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(body.new), u["id"]))
         c.execute("DELETE FROM sessions WHERE user_id=?", (u["id"],))   # log out everywhere else
+        c.execute("DELETE FROM password_resets WHERE user_id=?", (u["id"],))
         _new_session(c, u["id"], response, request)
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- forgotten passwords
+# A reset link carries a one-time 256-bit token (only its SHA-256 is stored). It is emailed when SMTP is set up;
+# otherwise an admin can create one for a user from the admin panel and pass it on (WhatsApp, in person, ...).
+RESET_S = 30 * 60               # emailed links: 30 min
+ADMIN_RESET_S = 24 * 3600       # admin-made links: 24 h (handed over by a person, so allow longer)
+# The link's site address comes from config, never from the request's Host header (host-header poisoning).
+PUBLIC_URL = os.environ.get("ROADWATCH_PUBLIC_URL", "http://localhost:3000").rstrip("/")
+SMTP = {k: os.environ.get(f"ROADWATCH_SMTP_{k.upper()}", "") for k in ("host", "port", "user", "password", "sender")}
+
+
+def email_enabled() -> bool:
+    return bool(SMTP["host"] and SMTP["sender"])
+
+
+def create_reset(c: sqlite3.Connection, user_id: str, ttl_s: int, created_by: str | None = None) -> str:
+    """New one-time token for user_id; older unused links for that user stop working."""
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    c.execute("DELETE FROM password_resets WHERE user_id=? OR expires_at<?", (user_id, now))
+    c.execute("INSERT INTO password_resets(token_hash, user_id, created_at, expires_at, created_by) VALUES (?,?,?,?,?)",
+              (_th(token), user_id, now, now + ttl_s, created_by))
+    return token
+
+
+def reset_path(token: str) -> str:
+    return f"/reset?token={token}"
+
+
+def _send_reset_email(to: str, name: str, link: str) -> None:
+    import smtplib
+    from email.message import EmailMessage
+    m = EmailMessage()
+    m["Subject"] = "RoadWatch BD: reset your password"
+    m["From"], m["To"] = SMTP["sender"], to
+    m.set_content(f"Hello {name},\n\nSomeone (hopefully you) asked to reset the password of your RoadWatch BD "
+                  f"account. Open this link within 30 minutes to choose a new password:\n\n{link}\n\n"
+                  "If it wasn't you, ignore this email: your password stays the same.\n")
+    try:
+        port = int(SMTP["port"] or 587)
+        cls = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
+        with cls(SMTP["host"], port, timeout=20) as s:
+            if port != 465:
+                s.starttls()
+            if SMTP["user"]:
+                s.login(SMTP["user"], SMTP["password"])
+            s.send_message(m)
+    except Exception as e:   # never surfaces to the visitor (that would reveal whether the email exists)
+        print(f"[accounts] reset email to user failed: {type(e).__name__}: {e}", flush=True)
+
+
+class Forgot(BaseModel):
+    email: str = Field(max_length=254)
+
+
+@router.post("/api/auth/forgot", dependencies=[Depends(require_json)])
+def forgot(body: Forgot, request: Request):
+    email = body.email.strip().lower()
+    _throttle(f"forgot-ip:{_ip(request)}")
+    _throttle(f"forgot-email:{email}")
+    if email_enabled():
+        with db() as c:
+            u = c.execute("SELECT id, display_name FROM users WHERE email=? AND disabled=0", (email,)).fetchone()
+            token = create_reset(c, u["id"], RESET_S) if u else None
+        if u:   # send in the background: same response time whether or not the account exists
+            threading.Thread(target=_send_reset_email, daemon=True,
+                             args=(email, u["display_name"], PUBLIC_URL + reset_path(token))).start()
+    # Same answer for every email, so this can't be used to find out who has an account.
+    return {"ok": True, "email_enabled": email_enabled()}
+
+
+class Reset(BaseModel):
+    token: str = Field(min_length=20, max_length=100)
+    new: str = Field(min_length=10, max_length=200)
+
+
+@router.post("/api/auth/reset", dependencies=[Depends(require_json)])
+def reset(body: Reset, request: Request, response: Response):
+    _throttle(f"reset-ip:{_ip(request)}")
+    now = time.time()
+    with db() as c:
+        r = c.execute("SELECT r.user_id FROM password_resets r JOIN users u ON u.id = r.user_id "
+                      "WHERE r.token_hash=? AND r.used_at IS NULL AND r.expires_at>? AND u.disabled=0",
+                      (_th(body.token), now)).fetchone()
+        if not r:
+            raise HTTPException(400, "this reset link is invalid or has expired")
+        uid = r["user_id"]
+        c.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(body.new), uid))
+        c.execute("DELETE FROM password_resets WHERE user_id=?", (uid,))   # one use; other links die too
+        c.execute("DELETE FROM sessions WHERE user_id=?", (uid,))          # whoever was logged in is logged out
+        _new_session(c, uid, response, request)
+        return me_json(c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone())
 
 
 @router.get("/api/me/videos")

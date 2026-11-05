@@ -112,6 +112,18 @@ def disable_user(uid: str, body: Disable, me=ADMIN):
     return {"id": uid, "disabled": body.disabled}
 
 
+@router.post("/users/{uid}/reset-link", dependencies=[Depends(require_json)])
+def reset_link(uid: str, me=ADMIN):
+    """For a user who forgot their password while email isn't set up: a one-time link the admin passes on.
+    The admin never sees or sets the password itself."""
+    with accounts.db() as c:
+        if not c.execute("SELECT 1 FROM users WHERE id=? AND disabled=0", (uid,)).fetchone():
+            raise HTTPException(404, "no such active user")
+        token = accounts.create_reset(c, uid, accounts.ADMIN_RESET_S, created_by=me["id"])
+    audit(me["id"], "reset_link", uid)
+    return {"path": accounts.reset_path(token), "expires_in_s": accounts.ADMIN_RESET_S}
+
+
 # --------------------------------------------------------------------------- videos
 @router.get("/videos")
 def videos(status: str = "", moderation: str = "", q: str = "", _=ADMIN):

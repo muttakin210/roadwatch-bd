@@ -67,6 +67,13 @@ export default function AuthForm({ mode }: { mode: "login" | "signup" }) {
         />
         {mode === "signup" && <span className="text-xs text-muted">{t("passwordHint")}</span>}
       </label>
+      {mode === "login" && (
+        <p className="text-sm text-right -mt-2">
+          <Link className="underline" href="/forgot">
+            {t("forgotLink")}
+          </Link>
+        </p>
+      )}
       {err && (
         <p className="text-red-700 text-sm" role="alert">
           {err}

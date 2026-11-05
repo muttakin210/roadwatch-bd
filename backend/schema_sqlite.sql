@@ -46,3 +46,7 @@ CREATE INDEX IF NOT EXISTS videos_user ON videos(user_id);
 CREATE TABLE IF NOT EXISTS admin_log(
   id TEXT PRIMARY KEY, admin_id TEXT NOT NULL, action TEXT NOT NULL, target TEXT, detail TEXT, created_at REAL);
 CREATE INDEX IF NOT EXISTS admin_log_time ON admin_log(created_at);
+-- one-time password-reset links; only the SHA-256 of the token is stored
+CREATE TABLE IF NOT EXISTS password_resets(token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at REAL,
+  expires_at REAL, used_at REAL, created_by TEXT);
+CREATE INDEX IF NOT EXISTS password_resets_user ON password_resets(user_id);

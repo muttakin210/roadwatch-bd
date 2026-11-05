@@ -251,6 +251,7 @@ function Users({ myId }: { myId: string }) {
                   >
                     {t(u.disabled ? "adm_enable" : "adm_disable")}
                   </button>
+                  {!u.disabled && <ResetLinkButton id={u.id} email={u.email} />}
                 </div>
               )}
             </div>
@@ -258,6 +259,47 @@ function Users({ myId }: { myId: string }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+/** For users who forgot their password while the site can't send email: a one-time link to pass on privately. */
+function ResetLinkButton({ id, email }: { id: string; email: string }) {
+  const { t } = useT();
+  const [link, setLink] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  async function make() {
+    setErr(null);
+    setCopied(false);
+    try {
+      const r = await call<{ path: string }>(`/api/admin/users/${id}/reset-link`, "POST", {});
+      setLink(location.origin + r.path);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "error");
+    }
+  }
+  return (
+    <>
+      <button type="button" className="btn-secondary" onClick={() => void make()}>
+        {t("adm_resetLink")}
+      </button>
+      {err && <p className="text-red-700 text-sm basis-full">{err}</p>}
+      {link && (
+        <div className="basis-full space-y-1 text-sm" role="status">
+          <p>{t("adm_resetMade").replace("{email}", email)}</p>
+          <div className="flex gap-2">
+            <input className="input flex-1 font-mono text-xs" readOnly value={link} aria-label={t("adm_resetLink")} onFocus={(e) => e.currentTarget.select()} />
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void navigator.clipboard?.writeText(link).then(() => setCopied(true))}
+            >
+              {t(copied ? "adm_copied" : "adm_copy")}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
