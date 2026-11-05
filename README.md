@@ -127,6 +127,30 @@ vercel deploy --prod
 
 A permanent address needs a named Cloudflare tunnel on your own domain (free Cloudflare account).
 
+### Road map, news and fines
+
+- **Fines** (`backend/fine_rules.py`): each AI event type maps to the rule it breaks in the Road Transport
+  Act 2018. The police/admin form is pre-filled with that rule's legal maximum, and the backend refuses
+  anything higher. A reviewer and then police/admin still confirm every case, so nothing is fined automatically.
+  `test_fine_rules.py` keeps these in step with the traffic rules page (`web/lib/rules.ts`).
+- **News** (`backend/news.py`): headlines and links only, from the RSS feeds of The Daily Star, Prothom Alo
+  (Bangla and English), TBS, Jagonews24 and BBC Bangla, refreshed every 2 hours. `ROADWATCH_NEWS=0` turns it off.
+- **Live traffic (Google Maps)**: create a Maps JavaScript API key in Google Cloud (billing must be enabled;
+  there is a free monthly credit). Restrict it to HTTP referrers `https://roadwatch-bd-alpha.vercel.app/*` and
+  `http://localhost:3000/*`, and to the Maps JavaScript API only. Then set it on Vercel and redeploy:
+  `printf '%s' "<key>" | vercel env add NEXT_PUBLIC_GOOGLE_MAPS_KEY production --force; vercel deploy --prod`.
+  Without a key the map shows OpenStreetMap.
+- **Offline map pack**: Google's terms don't allow saving Google map data offline, so the offline map is an
+  OpenStreetMap extract of Bangladesh. Build it once with the [pmtiles CLI](https://github.com/protomaps/go-pmtiles/releases)
+  from the newest [Protomaps build](https://maps.protomaps.com/builds/):
+  ```bash
+  pmtiles extract https://build.protomaps.com/<YYYYMMDD>.pmtiles data/platform/maps/bd.pmtiles \
+      --bbox=88.0,20.55,92.7,26.65 --maxzoom=14
+  ```
+  The backend serves it at `/api/map/offline/bd.pmtiles`, and the map page offers "Save map for offline".
+- **Place search** works offline from `web/public/data/bd-places.json` (GeoNames, CC BY 4.0, about 50,000 places).
+  It lacks many Dhaka neighbourhoods and landmarks (for example Farmgate).
+
 ### Cross-browser tests
 
 `playwright.config.ts` has one project per platform: `android` (Pixel 7), `iphone`, `ipad`,

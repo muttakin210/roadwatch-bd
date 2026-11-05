@@ -133,6 +133,17 @@ admin.setup(db=db, uploads=UPLOADS, results=RESULTS, enqueue=_enqueue, progress=
                           "max_upload_mb": MAX_BYTES // (1024 * 1024)})
 app.include_router(admin.router)
 
+import news  # noqa: E402
+
+app.include_router(news.router)
+
+import maps  # noqa: E402
+
+maps.setup(db, DATA)
+app.include_router(maps.router)
+if os.environ.get("ROADWATCH_NEWS", "1") == "1":   # tests and offline development set ROADWATCH_NEWS=0
+    news.start()
+
 
 def _visible(vid: str, request: Request) -> sqlite3.Row:
     """404 for unknown videos, and for hidden ones unless you're the uploader or staff."""

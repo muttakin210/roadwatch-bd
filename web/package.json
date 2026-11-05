@@ -9,9 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@protomaps/basemaps": "^5.7.2",
     "leaflet": "^1.9.4",
+    "maplibre-gl": "^6.16.0",
     "mediabunny": "^1.65.2",
     "next": "16.4.5",
+    "pmtiles": "^4.5.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-leaflet": "^5.0.0"
