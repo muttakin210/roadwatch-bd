@@ -193,6 +193,11 @@ const DICT = {
     role_reviewer: "Reviewer",
     role_police: "Traffic police",
     role_admin: "Admin",
+    installApp: "Install RoadWatch BD as an app on this device.",
+    installIos: "To install: tap Share, then “Add to Home Screen”.",
+    install: "Install",
+    notNow: "Not now",
+    noPreview: "This browser can’t preview this video. You can still upload it and it will be analysed, but trimming and direction arrows aren’t available. Keep it between 10 seconds and 5 minutes.",
     // admin panel
     adminPanel: "Admin panel",
     adm_overview: "Overview",
@@ -427,6 +432,11 @@ const DICT = {
     role_reviewer: "রিভিউয়ার",
     role_police: "ট্রাফিক পুলিশ",
     role_admin: "অ্যাডমিন",
+    installApp: "এই ডিভাইসে রোডওয়াচ বিডি অ্যাপ হিসেবে ইনস্টল করুন।",
+    installIos: "ইনস্টল করতে: শেয়ার চাপুন, তারপর “Add to Home Screen”।",
+    install: "ইনস্টল",
+    notNow: "এখন নয়",
+    noPreview: "এই ব্রাউজার ভিডিওটি দেখাতে পারছে না। তবুও আপলোড করলে বিশ্লেষণ হবে, কিন্তু ট্রিম ও দিকের তীর আঁকা যাবে না। ভিডিওটি ১০ সেকেন্ড থেকে ৫ মিনিটের মধ্যে রাখুন।",
     // অ্যাডমিন প্যানেল
     adminPanel: "অ্যাডমিন প্যানেল",
     adm_overview: "সারসংক্ষেপ",

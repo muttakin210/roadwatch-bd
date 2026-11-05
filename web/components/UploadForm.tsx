@@ -34,6 +34,9 @@ export default function UploadForm() {
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [meta, setMeta] = useState<{ duration: number; w: number; h: number } | null>(null);
+  // The browser can't decode this file (e.g. an iPhone HEVC .mov in Chrome/Firefox on Windows or Linux).
+  // The server decodes it with ffmpeg, so it can still be uploaded, just without trim and arrows.
+  const [noPreview, setNoPreview] = useState(false);
   const [trim, setTrim] = useState<[number, number]>([0, 0]);
   const [frame, setFrame] = useState<ImageBitmap | null>(null);
   const [camera, setCamera] = useState<(typeof CAMERAS)[number]>("footbridge");
@@ -52,6 +55,7 @@ export default function UploadForm() {
   function pick(f: File | null) {
     setFile(f);
     setMeta(null);
+    setNoPreview(false);
     setFrame(null);
     setArrows([]);
     setPhase({ k: "idle" });
@@ -76,13 +80,13 @@ export default function UploadForm() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file || !meta || lenError) return;
+    if (!file || !(meta || noPreview) || lenError) return;
     abort.current = new AbortController();
     const signal = abort.current.signal;
     try {
       let toSend: File = file;
       let note: string | undefined;
-      if (shouldCompress(file, trimmed, meta.w, meta.h)) {
+      if (shouldCompress(file, trimmed, meta?.w ?? 0, meta?.h ?? 0)) {
         setPhase({ k: "compressing", p: 0 });
         skip.current = new AbortController();
         const skipSignal = skip.current.signal;
@@ -151,7 +155,13 @@ export default function UploadForm() {
                 setTrim([0, Math.min(v.duration, MAX_S)]);
                 void grabFrame(0);
               }}
+              onError={() => setNoPreview(true)}
             />
+            {noPreview && (
+              <p className="text-sm rounded-lg bg-amber-50 border border-amber-300 p-2" role="status">
+                {t("noPreview")}
+              </p>
+            )}
             {meta && file && (
               <div className="space-y-2">
                 <p className="font-medium">{t("trim")}</p>
@@ -253,7 +263,7 @@ export default function UploadForm() {
       </div>
 
       <div className="flex gap-3">
-        <button type="submit" className="btn-primary" disabled={!file || !meta || !!lenError || busy}>
+        <button type="submit" className="btn-primary" disabled={!file || !(meta || noPreview) || !!lenError || busy}>
           {phase.k === "error" ? t("tryAgain") : t("submit")}
         </button>
       </div>

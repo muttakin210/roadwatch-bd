@@ -10,8 +10,15 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 8 * 60_000, // CPU-only detection takes minutes
   use: { baseURL: "http://127.0.0.1:3000", trace: "retain-on-failure" },
+  // One project per platform family. The slow upload test (real ML on CPU) runs on the two phones only.
   projects: [
-    { name: "mobile", use: { ...devices["Pixel 7"] } },
+    { name: "android", use: { ...devices["Pixel 7"] } },
+    { name: "iphone", use: { ...devices["iPhone 15"] } },
+    { name: "ipad", use: { ...devices["iPad (gen 11)"] }, testIgnore: /upload\.spec/ },
+    { name: "windows-linux-chrome", use: { ...devices["Desktop Chrome"] }, testIgnore: /upload\.spec/ },
+    { name: "edge", use: { ...devices["Desktop Edge"] }, testIgnore: /upload\.spec/ },
+    { name: "mac-safari", use: { ...devices["Desktop Safari"] }, testIgnore: /upload\.spec/ },
+    { name: "firefox", use: { ...devices["Desktop Firefox"] }, testIgnore: /upload\.spec/ },
   ],
   webServer: [
     {

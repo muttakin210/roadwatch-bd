@@ -2,22 +2,28 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { call, safeNext, useAuth, type Me } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+
+const noop = () => () => {};
 
 export default function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const { t } = useT();
   const { setMe } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // false in the server HTML, true once React runs. The inputs are uncontrolled so text typed while the page
+  // is still loading survives hydration; the button waits until React can handle the submit itself.
+  const ready = useSyncExternalStore(noop, () => true, () => false);
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const email = String(f.get("email") ?? "");
+    const password = String(f.get("password") ?? "");
+    const name = String(f.get("name") ?? "");
     setBusy(true);
     setErr(null);
     try {
@@ -35,25 +41,25 @@ export default function AuthForm({ mode }: { mode: "login" | "signup" }) {
   }
 
   return (
-    <form onSubmit={submit} className="card space-y-4 max-w-md mx-auto">
+    // method=post: should the browser ever submit natively, credentials must not end up in the URL
+    <form onSubmit={submit} method="post" className="card space-y-4 max-w-md mx-auto">
       <h1 className="text-xl font-semibold">{t(mode === "login" ? "login" : "signup")}</h1>
       {mode === "signup" && (
         <label className="block space-y-1">
           <span className="text-sm">{t("displayName")}</span>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} autoComplete="name" />
+          <input className="input" name="name" required maxLength={60} autoComplete="name" />
         </label>
       )}
       <label className="block space-y-1">
         <span className="text-sm">{t("email")}</span>
-        <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+        <input className="input" name="email" type="email" required autoComplete="email" />
       </label>
       <label className="block space-y-1">
         <span className="text-sm">{t("password")}</span>
         <input
           className="input"
           type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          name="password"
           required
           minLength={mode === "signup" ? 10 : undefined}
           maxLength={200}
@@ -66,7 +72,7 @@ export default function AuthForm({ mode }: { mode: "login" | "signup" }) {
           {err}
         </p>
       )}
-      <button type="submit" className="btn-primary w-full" disabled={busy}>
+      <button type="submit" className="btn-primary w-full" disabled={busy || !ready}>
         {t(mode === "login" ? "login" : "signup")}
       </button>
       <p className="text-sm text-muted">

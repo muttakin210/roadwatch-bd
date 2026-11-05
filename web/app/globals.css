@@ -10,6 +10,14 @@
 body {
   background: #f6f7f6;
   color: #18181b;
+  /* installed app on notched phones: keep content out from under the notch and home bar */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+header {
+  padding-top: env(safe-area-inset-top);
 }
 
 @layer components {
