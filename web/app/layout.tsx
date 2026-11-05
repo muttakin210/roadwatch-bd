@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Noto_Sans_Bengali } from "next/font/google";
 import Header from "@/components/Header";
 import ServiceWorker from "@/components/ServiceWorker";
+import TrafficBackground from "@/components/TrafficBackground";
 import { AuthProvider } from "@/lib/auth";
 import { I18nProvider } from "@/lib/i18n";
 import "./globals.css";
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <Header />
             <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">{children}</main>
             <ServiceWorker />
+            <TrafficBackground />
           </AuthProvider>
         </I18nProvider>
       </body>

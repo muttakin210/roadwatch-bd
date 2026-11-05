@@ -45,3 +45,53 @@ header {
   outline: 3px solid #1a73e8;
   outline-offset: 2px;
 }
+
+/* Background traffic (components/TrafficBackground.tsx): faint, behind content, never in the way */
+.traffic-bg {
+  opacity: 0.35;
+}
+.traffic-dashes {
+  background: repeating-linear-gradient(90deg, #a1a1aa 0 28px, transparent 28px 56px);
+}
+.traffic-car {
+  left: 0;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+.traffic-ltr {
+  animation-name: drive-ltr;
+}
+.traffic-rtl {
+  animation-name: drive-rtl;
+}
+@keyframes drive-ltr {
+  from { transform: translateX(-140px); }
+  to { transform: translateX(100vw); }
+}
+@keyframes drive-rtl {
+  from { transform: translateX(100vw); }
+  to { transform: translateX(-140px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .traffic-car {
+    animation: none;
+  }
+  .traffic-ltr:nth-of-type(odd) { transform: translateX(15vw); }
+  .traffic-ltr:nth-of-type(even) { transform: translateX(60vw); }
+  .traffic-rtl:nth-of-type(odd) { transform: translateX(40vw); }
+  .traffic-rtl:nth-of-type(even) { transform: translateX(80vw); }
+}
+@media print {
+  .traffic-bg { display: none; }
+}
+
+/* town names on the offline map (HTML, so Bangla is shaped by the browser) */
+.rw-town {
+  font-size: 12px;
+  font-weight: 600;
+  color: #27272a;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff;
+  pointer-events: none;
+  white-space: nowrap;
+}
