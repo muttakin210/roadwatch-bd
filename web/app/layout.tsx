@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Noto_Sans_Bengali } from "next/font/google";
 import Header from "@/components/Header";
+import { AuthProvider } from "@/lib/auth";
 import { I18nProvider } from "@/lib/i18n";
 import "./globals.css";
 
@@ -19,8 +20,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${geistSans.variable} ${bengali.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-sans">
         <I18nProvider>
-          <Header />
-          <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">{children}</main>
+          <AuthProvider>
+            <Header />
+            <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">{children}</main>
+          </AuthProvider>
         </I18nProvider>
       </body>
     </html>
