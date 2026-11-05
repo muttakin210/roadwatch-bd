@@ -8,6 +8,7 @@ from pathlib import Path
 
 def test_upload_process_events_feedback(tmp_path, monkeypatch):
     monkeypatch.setenv("ROADWATCH_DATA", str(tmp_path))
+    monkeypatch.setenv("ROADWATCH_NEWS", "0")
     sys.path.insert(0, str(Path(__file__).parent))
     app_mod = importlib.import_module("app")
     importlib.reload(app_mod)
@@ -55,6 +56,7 @@ def test_upload_process_events_feedback(tmp_path, monkeypatch):
 
 def test_chunked_resumable_upload(tmp_path, monkeypatch):
     monkeypatch.setenv("ROADWATCH_DATA", str(tmp_path))
+    monkeypatch.setenv("ROADWATCH_NEWS", "0")
     sys.path.insert(0, str(Path(__file__).parent))
     app_mod = importlib.import_module("app")
     importlib.reload(app_mod)
