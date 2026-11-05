@@ -1,0 +1,293 @@
+"use client";
+
+import { createContext, useCallback, useContext, useEffect, useSyncExternalStore } from "react";
+
+export type Lang = "en" | "bn";
+
+// Bangla strings: first draft, needs review by a native speaker before beta.
+const DICT = {
+  en: {
+    appName: "RoadWatch BD",
+    tagline: "Upload a road video. The AI marks possible traffic jams, buses stopping mid-road and wrong-way driving.",
+    disclaimer: "Results are AI-detected and may be wrong. Faces and number plates are blurred.",
+    langSwitch: "বাংলা",
+    step1: "1. Choose a video",
+    chooseFile: "Choose video",
+    fileHint: "30 s – 5 min · MP4, MOV or WebM · up to 200 MB",
+    tips: "Tips: hold steady for 30 s or more, landscape, show the whole road width.",
+    trim: "Trim to the important part",
+    trimStart: "Start",
+    trimEnd: "End",
+    tooShort: "Keep at least 10 seconds.",
+    tooLong: "Keep at most 5 minutes.",
+    step2: "2. About the camera",
+    cameraType: "Where was it filmed from?",
+    cam_footbridge: "Footbridge",
+    cam_roadside: "Roadside",
+    cam_cctv: "CCTV",
+    cam_vehicle: "From a moving vehicle (only congestion is fully supported)",
+    alongRoad: "The camera looks along the road (not across it)",
+    oneway: "This is a one-way road",
+    step3: "3. Optional: which way should traffic go?",
+    arrowsHint: "Drag on the picture to draw an arrow for each side of the road. Skip if unsure.",
+    clearArrows: "Clear arrows",
+    arrowsCount: "arrows drawn",
+    step4: "4. Optional: where was it?",
+    locationHint: "Tap the map to drop a pin.",
+    useMyLocation: "Use my location",
+    clearLocation: "Remove pin",
+    locationFailed: "Could not get your location.",
+    step5: "5. Consent",
+    consent: "Allow this video to be used to improve the model (otherwise the raw video is deleted after 30 days)",
+    submit: "Upload and analyse",
+    compressing: "Making the video smaller…",
+    compressSkipped: "Compression skipped; uploading the original file (any trim is not applied).",
+    uploading: "Uploading…",
+    uploadRetry: "Connection lost — retrying…",
+    uploadFailed: "Upload failed",
+    tryAgain: "Try again",
+    processing: "Processing",
+    st_queued: "Waiting in the queue",
+    st_starting: "Starting up…",
+    "st_checking video": "Checking the video",
+    st_detecting: "Finding vehicles",
+    st_analysing: "Analysing traffic",
+    st_rendering: "Making the result video",
+    st_done: "Done",
+    st_failed: "Failed",
+    notifyMe: "Notify me when ready",
+    notifyOn: "We'll notify you when it's ready.",
+    keepOpen: "You can keep this page open or come back later with the same link.",
+    results: "Results",
+    congestion: "Congestion",
+    camera: "Camera",
+    cm_static: "steady",
+    cm_shaky: "shaky (stabilised)",
+    cm_moving: "moving (limited analysis)",
+    noEvents: "No possible incidents found.",
+    showUncertain: "Show uncertain events",
+    possible: "possible incident (AI-detected, may be wrong)",
+    confidence: "confidence",
+    correct: "✔ Correct",
+    wrong: "✖ Wrong",
+    wrongType: "Wrong type",
+    thanks: "Thanks!",
+    downloadVideo: "Download video",
+    downloadJson: "Download data (JSON)",
+    share: "Share link",
+    copied: "Link copied",
+    report: "Report this video",
+    reportReason: "What's wrong? (e.g. not a road, private, offensive)",
+    send: "Send",
+    reported: "Thanks — a moderator will review it.",
+    notes: "Notes",
+    nt_no_road_edges: "The road edges weren't found, so the whole frame was treated as road.",
+    nt_cam_low_texture: "Too little background detail to tell whether the camera moved; it was analysed as if held still.",
+    nt_cam_moving: "The camera moved (pan, tilt, or filmed from a vehicle). Only congestion is fully supported; hold the camera still to check wrong-way driving and bus stops.",
+    nt_portrait: "A portrait video shows only a narrow strip of road; filming in landscape gives better results.",
+    nt_oneway_two_way: "Traffic flows both ways on a road marked one-way, so individual vehicles weren't flagged.",
+    nt_ww_cannot_judge: "Not enough traffic to work out the normal direction, so wrong-way driving wasn't checked. Drawing a direction arrow helps.",
+    nt_arrow_disagrees: "Your direction arrow disagrees with the traffic seen in {n} parts of the road. Please check it.",
+    newUpload: "Analyse another video",
+    ev_bus_midroad_stop: "Bus stopping mid-road",
+    ev_wrong_way: "Wrong-way driving",
+    ev_congestion_jam: "Traffic jam",
+    ev_u_turn: "U-turn",
+    vehicles: "vehicle(s)",
+    times: "time(s)",
+    loadFailed: "Could not load this video.",
+    rsn_jam_main: "{s} s with ~{occ}% of the road covered and {stopped}% of vehicles stopped",
+    rsn_jam_signal: "clip too short to rule out a signal",
+    rsn_ww_main: "moved {s} s opposite to traffic ({deg}°)",
+    rsn_ww_kerb: "along the kerb edge",
+    rsn_uturn: "turned ~180° (U-turn)",
+    rsn_bus_main: "stopped {s} s · ~{gap} bus-widths from the kerb · {held} vehicles held up behind",
+    rsn_bus_people: "{n} people near the bus",
+    rsn_bus_at_stop: "at a stop, but blocking a lane",
+    rsn_limited_moving: "the camera was moving, so this is less reliable",
+    skipCompress: "Skip — upload the original file",
+    cls_person: "person",
+    cls_bicycle: "bicycle",
+    cls_rickshaw: "rickshaw",
+    cls_rickshaw_van: "rickshaw van",
+    cls_motorcycle: "motorcycle",
+    cls_easybike: "easybike",
+    cls_cng_autorickshaw: "CNG auto-rickshaw",
+    cls_leguna: "leguna",
+    cls_car: "car",
+    cls_microbus: "microbus / SUV",
+    cls_bus: "bus",
+    cls_truck: "truck",
+    cls_pickup: "pickup / covered van",
+    cls_ambulance: "ambulance",
+    cls_other: "other vehicle",
+  },
+  bn: {
+    appName: "রোডওয়াচ বিডি",
+    tagline: "রাস্তার একটি ভিডিও আপলোড করুন। এআই সম্ভাব্য যানজট, রাস্তার মাঝে বাস থামা এবং উল্টো পথে গাড়ি চালানো চিহ্নিত করে।",
+    disclaimer: "ফলাফল এআই-শনাক্ত এবং ভুল হতে পারে। মুখ ও নম্বর প্লেট ঝাপসা করা হয়।",
+    langSwitch: "English",
+    step1: "১. ভিডিও বাছাই করুন",
+    chooseFile: "ভিডিও বাছাই করুন",
+    fileHint: "৩০ সেকেন্ড – ৫ মিনিট · MP4, MOV বা WebM · সর্বোচ্চ ২০০ MB",
+    tips: "পরামর্শ: ৩০ সেকেন্ড বা তার বেশি স্থির রাখুন, আড়াআড়ি (ল্যান্ডস্কেপ) ধরুন, পুরো রাস্তা দেখান।",
+    trim: "গুরুত্বপূর্ণ অংশটুকু রাখুন",
+    trimStart: "শুরু",
+    trimEnd: "শেষ",
+    tooShort: "কমপক্ষে ১০ সেকেন্ড রাখুন।",
+    tooLong: "সর্বোচ্চ ৫ মিনিট রাখুন।",
+    step2: "২. ক্যামেরা সম্পর্কে",
+    cameraType: "কোথা থেকে ধারণ করা হয়েছে?",
+    cam_footbridge: "ফুটওভার ব্রিজ",
+    cam_roadside: "রাস্তার পাশ",
+    cam_cctv: "সিসিটিভি",
+    cam_vehicle: "চলন্ত গাড়ি থেকে (শুধু যানজট পুরোপুরি বিশ্লেষণ হয়)",
+    alongRoad: "ক্যামেরা রাস্তা বরাবর তাকিয়ে আছে (আড়াআড়ি নয়)",
+    oneway: "এটি একমুখী রাস্তা",
+    step3: "৩. ঐচ্ছিক: গাড়ি কোন দিকে চলার কথা?",
+    arrowsHint: "রাস্তার প্রতিটি পাশের জন্য ছবিতে টেনে একটি তীর আঁকুন। নিশ্চিত না হলে বাদ দিন।",
+    clearArrows: "তীর মুছুন",
+    arrowsCount: "টি তীর আঁকা হয়েছে",
+    step4: "৪. ঐচ্ছিক: কোথায়?",
+    locationHint: "পিন বসাতে মানচিত্রে ট্যাপ করুন।",
+    useMyLocation: "আমার অবস্থান ব্যবহার করুন",
+    clearLocation: "পিন সরান",
+    locationFailed: "আপনার অবস্থান পাওয়া যায়নি।",
+    step5: "৫. সম্মতি",
+    consent: "মডেল উন্নত করতে এই ভিডিও ব্যবহারের অনুমতি দিন (না দিলে মূল ভিডিও ৩০ দিন পর মুছে ফেলা হয়)",
+    submit: "আপলোড ও বিশ্লেষণ করুন",
+    compressing: "ভিডিও ছোট করা হচ্ছে…",
+    compressSkipped: "ভিডিও ছোট করা হয়নি; মূল ফাইল আপলোড হচ্ছে (ট্রিম প্রযোজ্য হবে না)।",
+    uploading: "আপলোড হচ্ছে…",
+    uploadRetry: "সংযোগ বিচ্ছিন্ন — আবার চেষ্টা করা হচ্ছে…",
+    uploadFailed: "আপলোড ব্যর্থ হয়েছে",
+    tryAgain: "আবার চেষ্টা করুন",
+    processing: "প্রক্রিয়াকরণ চলছে",
+    st_queued: "সারিতে অপেক্ষমাণ",
+    st_starting: "শুরু হচ্ছে…",
+    "st_checking video": "ভিডিও যাচাই করা হচ্ছে",
+    st_detecting: "যানবাহন খোঁজা হচ্ছে",
+    st_analysing: "যান চলাচল বিশ্লেষণ করা হচ্ছে",
+    st_rendering: "ফলাফলের ভিডিও তৈরি হচ্ছে",
+    st_done: "সম্পন্ন",
+    st_failed: "ব্যর্থ",
+    notifyMe: "প্রস্তুত হলে জানান",
+    notifyOn: "প্রস্তুত হলে আপনাকে জানানো হবে।",
+    keepOpen: "এই পাতা খোলা রাখতে পারেন, অথবা একই লিংকে পরে ফিরে আসুন।",
+    results: "ফলাফল",
+    congestion: "যানজট",
+    camera: "ক্যামেরা",
+    cm_static: "স্থির",
+    cm_shaky: "কাঁপা (স্থির করা হয়েছে)",
+    cm_moving: "চলমান (সীমিত বিশ্লেষণ)",
+    noEvents: "কোনো সম্ভাব্য ঘটনা পাওয়া যায়নি।",
+    showUncertain: "অনিশ্চিত ঘটনাও দেখান",
+    possible: "সম্ভাব্য ঘটনা (এআই-শনাক্ত, ভুল হতে পারে)",
+    confidence: "আস্থা",
+    correct: "✔ সঠিক",
+    wrong: "✖ ভুল",
+    wrongType: "ভুল ধরন",
+    thanks: "ধন্যবাদ!",
+    downloadVideo: "ভিডিও ডাউনলোড",
+    downloadJson: "ডেটা ডাউনলোড (JSON)",
+    share: "লিংক শেয়ার করুন",
+    copied: "লিংক কপি হয়েছে",
+    report: "এই ভিডিও রিপোর্ট করুন",
+    reportReason: "সমস্যা কী? (যেমন: রাস্তা নয়, ব্যক্তিগত, আপত্তিকর)",
+    send: "পাঠান",
+    reported: "ধন্যবাদ — একজন মডারেটর দেখবেন।",
+    notes: "নোট",
+    nt_no_road_edges: "রাস্তার কিনারা পাওয়া যায়নি, তাই পুরো ফ্রেমকেই রাস্তা ধরা হয়েছে।",
+    nt_cam_low_texture: "পটভূমিতে যথেষ্ট খুঁটিনাটি নেই, তাই ক্যামেরা নড়েছে কিনা বোঝা যায়নি; স্থির ক্যামেরা ধরে বিশ্লেষণ করা হয়েছে।",
+    nt_cam_moving: "ক্যামেরা নড়েছে (ঘুরানো, কাত করা বা চলন্ত গাড়ি থেকে ধারণ)। শুধু যানজট পুরোপুরি যাচাই করা যায়; উল্টো পথে চলা ও বাস থামা যাচাই করতে ক্যামেরা স্থির রাখুন।",
+    nt_portrait: "খাড়া (পোর্ট্রেট) ভিডিওতে রাস্তার সরু অংশ দেখা যায়; আড়াআড়ি (ল্যান্ডস্কেপ) ভিডিও করলে ভালো ফল পাওয়া যায়।",
+    nt_oneway_two_way: "একমুখী রাস্তায় দুই দিকেই যান চলছে, তাই আলাদা করে কোনো যানবাহন চিহ্নিত করা হয়নি।",
+    nt_ww_cannot_judge: "স্বাভাবিক চলার দিক বোঝার মতো যথেষ্ট যানবাহন নেই, তাই উল্টো পথে চলা যাচাই করা হয়নি। দিক নির্দেশক তীর আঁকলে সাহায্য হয়।",
+    nt_arrow_disagrees: "আপনার আঁকা তীর রাস্তার {n}টি অংশে দেখা যান চলাচলের সঙ্গে মেলে না। অনুগ্রহ করে তীরটি আবার দেখুন।",
+    newUpload: "আরেকটি ভিডিও বিশ্লেষণ করুন",
+    ev_bus_midroad_stop: "রাস্তার মাঝে বাস থামা",
+    ev_wrong_way: "উল্টো পথে চলা",
+    ev_congestion_jam: "যানজট",
+    ev_u_turn: "ইউ-টার্ন",
+    vehicles: "টি যানবাহন",
+    times: "বার",
+    loadFailed: "এই ভিডিও লোড করা যায়নি।",
+    rsn_jam_main: "{s} সেকেন্ড ধরে রাস্তার প্রায় {occ}% যানবাহনে ঢাকা এবং {stopped}% যানবাহন থেমে ছিল",
+    rsn_jam_signal: "ক্লিপটি ছোট, তাই সিগন্যালে থামা কিনা নিশ্চিত নয়",
+    rsn_ww_main: "{s} সেকেন্ড ধরে যান চলাচলের উল্টো দিকে চলেছে ({deg}°)",
+    rsn_ww_kerb: "ফুটপাতের ধার ঘেঁষে",
+    rsn_uturn: "প্রায় ১৮০° ঘুরেছে (ইউ-টার্ন)",
+    rsn_bus_main: "{s} সেকেন্ড থেমে ছিল · ফুটপাত থেকে প্রায় {gap} বাস-প্রস্থ দূরে · পেছনে {held}টি যানবাহন আটকে ছিল",
+    rsn_bus_people: "বাসের কাছে {n} জন মানুষ",
+    rsn_bus_at_stop: "স্টপেই ছিল, কিন্তু একটি লেন আটকে রেখেছিল",
+    rsn_limited_moving: "ক্যামেরা নড়ছিল, তাই এটি কম নির্ভরযোগ্য",
+    skipCompress: "বাদ দিন — মূল ফাইল আপলোড করুন",
+    cls_person: "পথচারী",
+    cls_bicycle: "সাইকেল",
+    cls_rickshaw: "রিকশা",
+    cls_rickshaw_van: "রিকশা ভ্যান",
+    cls_motorcycle: "মোটরসাইকেল",
+    cls_easybike: "ইজিবাইক",
+    cls_cng_autorickshaw: "সিএনজি অটোরিকশা",
+    cls_leguna: "লেগুনা",
+    cls_car: "প্রাইভেট কার",
+    cls_microbus: "মাইক্রোবাস / এসইউভি",
+    cls_bus: "বাস",
+    cls_truck: "ট্রাক",
+    cls_pickup: "পিকআপ / কাভার্ড ভ্যান",
+    cls_ambulance: "অ্যাম্বুলেন্স",
+    cls_other: "অন্যান্য যান",
+  },
+} as const;
+
+export type Key = keyof (typeof DICT)["en"];
+
+type Ctx = { lang: Lang; setLang: (l: Lang) => void; t: (k: Key | string) => string };
+const I18n = createContext<Ctx>({ lang: "en", setLang: () => {}, t: (k) => String(k) });
+
+// The chosen language lives in localStorage; read it as an external store (server render = "en").
+const listeners = new Set<() => void>();
+function subscribe(cb: () => void) {
+  listeners.add(cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    listeners.delete(cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+function getSnapshot(): Lang {
+  const saved = localStorage.getItem("lang");
+  if (saved === "bn" || saved === "en") return saved;
+  return navigator.language?.startsWith("bn") ? "bn" : "en";
+}
+const getServerSnapshot = (): Lang => "en";
+
+export function I18nProvider({ children }: { children: React.ReactNode }) {
+  const lang = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+  const setLang = useCallback((l: Lang) => {
+    localStorage.setItem("lang", l);
+    listeners.forEach((cb) => cb());
+  }, []);
+  const t = useCallback(
+    (k: string) => (DICT[lang] as Record<string, string>)[k] ?? (DICT.en as Record<string, string>)[k] ?? k,
+    [lang],
+  );
+  return <I18n.Provider value={{ lang, setLang, t }}>{children}</I18n.Provider>;
+}
+
+export const useT = () => useContext(I18n);
+
+const BN_DIGITS = "০১২৩৪৫৬৭৮৯";
+export function num(n: number | string, lang: Lang): string {
+  const s = String(n);
+  return lang === "bn" ? s.replace(/[0-9]/g, (d) => BN_DIGITS[Number(d)]) : s;
+}
+
+export function fmtTime(s: number, lang: Lang): string {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return num(`${m}:${String(sec).padStart(2, "0")}`, lang);
+}

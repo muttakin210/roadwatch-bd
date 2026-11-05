@@ -1,0 +1,75 @@
+# Event-engine thresholds (PLAN §6). Never tune these on the test set.
+# Tune with location-wise cross-validation over train+val candidates (PLAN §6.0).
+version: ev-0.1.0
+
+analysis_fps: 15
+window_s: 5.0
+
+kinematics:
+  kalman_accel_px_s2: 300.0   # process noise (acceleration std)
+  kalman_meas_px: 4.0         # measurement noise (ground-point jitter)
+  scale_window_s: 1.0         # rolling max of box size for px->m scale (occlusion-robust)
+  stop_enter_mps: 0.5         # hysteresis: become stopped below this
+  stop_exit_mps: 1.0          # ... and moving again only above this
+  stop_min_s: 1.0             # stopped >= 1 s
+  move_min_mps: 1.5           # "really moves" (filters reversing / creeping)
+
+stitching:
+  max_gap_s: 1.5
+  max_dist_lengths: 0.75      # distance to predicted position, in vehicle lengths
+  min_dist_px: 15.0
+
+scene:
+  stopped_ratio: 0.6          # window counts as "stopped"
+  min_vehicles: 3
+  cycle_min_s: 30
+  cycle_max_s: 120
+  stop_line_tol: 0.04         # queue-front consistency, fraction of frame diagonal
+  jam_min_episode_s: 90       # a stopped episode longer than ~one cycle
+  min_clip_for_state_s: 60    # shorter clips: stopped windows are "unknown"
+
+congestion:
+  footprint_frac: 0.6         # lower part of the box counted as ground footprint (tune per view height)
+  free_occ: 0.15
+  heavy_occ: 0.35
+  jam_occ: 0.45
+  jam_stopped_ratio: 0.6
+  jam_min_s: 30
+  speed_high_mps: 4.0
+  speed_low_mps: 1.5
+  unknown_state_penalty: 0.25  # lower raw score when scene is "unknown"
+
+bus_stop:
+  classes: [bus]
+  leguna_subtype: true        # also check leguna, reported as subtype
+  min_stop_s: 8.0             # tune between 5 and 15
+  kerb_gap_bus_widths: 0.5
+  ahead_lengths: 2.5
+  behind_lengths: 3.0
+  lateral_widths: 0.6
+  people_radius_lengths: 1.0
+
+wrong_way:
+  min_s: 2.0
+  min_len_vehicle_lengths: 1.0
+  angle_deg: 135
+  min_trusted_frac: 0.6
+  hug_kerb_widths: 0.3
+  uturn_min_deg: 150
+  uturn_max_s: 8.0
+  oneway_minority_max: 0.30
+
+flow:
+  grid: [16, 9]
+  min_tracks: 8
+  min_agreement: 0.7
+  agree_deg: 45
+  arrow_radius_frac: 0.2      # arrow applies to cells this close when no divider is known
+
+merge:
+  gap_s: 3.0
+
+calibration:
+  method: platt               # platt | isotonic (isotonic once ~500+ labelled candidates/type)
+  show_min_confidence: 0.6
+  per_type_cutoff: {}         # e.g. {wrong_way: 0.7}
