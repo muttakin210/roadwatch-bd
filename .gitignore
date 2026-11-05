@@ -1,0 +1,10 @@
+data/
+!data/clips_index.csv
+ml/models/
+ml/.venv/
+**/__pycache__/
+.pytest_cache/
+*.mp4
+*.mov
+*.onnx
+*.pt

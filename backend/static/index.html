@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoadWatch BD — prototype</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; color: #1b1b1b; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .muted { color: #555; font-size: .9rem; }
+  fieldset { border: 1px solid #ccc; border-radius: 8px; margin: 12px 0; padding: 12px; }
+  label { display: block; margin: 8px 0; }
+  button { font-size: 1rem; padding: 10px 16px; border-radius: 8px; border: 0; background: #0b6e4f; color: #fff; cursor: pointer; }
+  button.sec { background: #e8e8e8; color: #111; padding: 6px 10px; font-size: .9rem; }
+  canvas, video { max-width: 100%; border-radius: 6px; }
+  #frameWrap { position: relative; display: none; }
+  .ev { border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin: 8px 0; }
+  .ev b { cursor: pointer; text-decoration: underline; }
+  progress { width: 100%; }
+  .warn { background: #fff4d6; padding: 8px; border-radius: 6px; }
+  :focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<h1>RoadWatch BD <span class="muted">· রোডওয়াচ</span></h1>
+<p class="muted">Upload a road video. The AI marks <em>possible</em> traffic jams, buses stopping mid-road and
+  wrong-way driving. Results are AI-detected and may be wrong. Faces and number plates are blurred.</p>
+
+<form id="up">
+  <fieldset>
+    <legend>1. Video</legend>
+    <label for="file">Clip (30 s – 5 min, max 200 MB)</label>
+    <input id="file" name="file" type="file" accept="video/mp4,video/quicktime,video/webm" required>
+    <p class="muted">Tips: hold steady for 30 s or more, landscape, show the whole road width.</p>
+  </fieldset>
+  <fieldset>
+    <legend>2. About the camera</legend>
+    <label for="camera_type">Where was it filmed from?</label>
+    <select id="camera_type" name="camera_type">
+      <option value="footbridge">Footbridge</option>
+      <option value="roadside">Roadside</option>
+      <option value="cctv">CCTV</option>
+      <option value="vehicle">From a moving vehicle (only congestion is fully supported)</option>
+    </select>
+    <label><input type="checkbox" id="along" checked> The camera looks <strong>along</strong> the road (not across it)</label>
+    <label><input type="checkbox" id="oneway"> This is a one-way road</label>
+  </fieldset>
+  <fieldset>
+    <legend>3. Optional: which way should traffic go?</legend>
+    <p class="muted">Drag on the first frame to draw an arrow for each side of the road. Skip if unsure.</p>
+    <div id="frameWrap"><canvas id="frame"></canvas></div>
+    <button type="button" class="sec" id="clearArrows">Clear arrows</button>
+  </fieldset>
+  <fieldset>
+    <legend>4. Consent</legend>
+    <label><input type="checkbox" name="consent_training" value="true"> Allow this video to be used to improve the
+      model (otherwise the raw video is deleted after 30 days)</label>
+  </fieldset>
+  <button type="submit">Upload and analyse</button>
+</form>
+
+<section id="status" hidden aria-live="polite">
+  <h2>Processing</h2>
+  <p id="step">queued</p>
+  <progress id="bar" max="1" value="0"></progress>
+</section>
+
+<section id="results" hidden>
+  <h2>Results</h2>
+  <video id="out" controls playsinline></video>
+  <div id="notes"></div>
+  <div id="summary"></div>
+  <label><input type="checkbox" id="uncertain"> Show uncertain events</label>
+  <div id="events"></div>
+</section>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const arrows = []; let scale = 1, drag = null, img = null;
+const NAMES = { bus_midroad_stop: "Possible bus stopping mid-road", wrong_way: "Possible wrong-way driving",
+                congestion_jam: "Possible traffic jam", u_turn: "U-turn" };
+
+$("file").addEventListener("change", () => {
+  const f = $("file").files[0]; if (!f) return;
+  const v = document.createElement("video");
+  v.muted = true; v.src = URL.createObjectURL(f);
+  v.addEventListener("loadeddata", () => { v.currentTime = Math.min(1, v.duration / 2); });
+  v.addEventListener("seeked", () => {
+    const c = $("frame"); c.width = v.videoWidth; c.height = v.videoHeight;
+    scale = Math.min(1, 1280 / Math.max(v.videoWidth, v.videoHeight)); // analysis resolution
+    c.getContext("2d").drawImage(v, 0, 0); img = c.getContext("2d").getImageData(0, 0, c.width, c.height);
+    $("frameWrap").style.display = "block"; draw();
+  }, { once: true });
+});
+function pos(e) { const c = $("frame"), r = c.getBoundingClientRect();
+  return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; }
+function draw(extra) {
+  const c = $("frame"), g = c.getContext("2d"); if (!img) return; g.putImageData(img, 0, 0);
+  g.strokeStyle = "#00e676"; g.fillStyle = "#00e676"; g.lineWidth = Math.max(3, c.width / 250);
+  for (const a of extra ? [...arrows, extra] : arrows) {
+    const [x1, y1, x2, y2] = a; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+    const ang = Math.atan2(y2 - y1, x2 - x1), L = c.width / 40;
+    g.beginPath(); g.moveTo(x2, y2);
+    g.lineTo(x2 - L * Math.cos(ang - 0.4), y2 - L * Math.sin(ang - 0.4));
+    g.lineTo(x2 - L * Math.cos(ang + 0.4), y2 - L * Math.sin(ang + 0.4)); g.fill();
+  }
+}
+$("frame").addEventListener("pointerdown", (e) => { drag = pos(e); });
+$("frame").addEventListener("pointermove", (e) => { if (drag) draw([...drag, ...pos(e)]); });
+$("frame").addEventListener("pointerup", (e) => {
+  if (!drag) return; const p = pos(e);
+  if (Math.hypot(p[0] - drag[0], p[1] - drag[1]) > 20) arrows.push([...drag, ...p]);
+  drag = null; draw();
+});
+$("clearArrows").onclick = () => { arrows.length = 0; draw(); };
+
+$("up").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fd = new FormData($("up"));
+  fd.set("hints", JSON.stringify({
+    camera_along_road: $("along").checked, oneway: $("oneway").checked || null,
+    arrows: arrows.map(a => a.map(v => v * scale)),
+  }));
+  $("status").hidden = false; $("step").textContent = "uploading…";
+  const r = await fetch("/api/videos", { method: "POST", body: fd });
+  if (!r.ok) { $("step").textContent = "Upload failed: " + (await r.json()).detail; return; }
+  const { id } = await r.json(); history.replaceState(null, "", "#" + id); watch(id);
+});
+
+function watch(id) {
+  $("status").hidden = false;
+  const es = new EventSource(`/api/videos/${id}/stream`);
+  es.onmessage = (m) => {
+    const p = JSON.parse(m.data); if (!p) return;
+    $("step").textContent = p.step + (p.error ? ": " + p.error : ""); $("bar").value = p.progress;
+    if (p.step === "done") { es.close(); show(id); }
+    if (p.step === "failed") es.close();
+  };
+}
+async function show(id) {
+  $("results").hidden = false;
+  $("out").src = `/api/videos/${id}/annotated`;
+  const v = await (await fetch(`/api/videos/${id}`)).json();
+  const s = v.summary || {};
+  $("summary").innerHTML = `<p>Congestion score: <strong>${v.congestion_avg ?? "–"}</strong>/100 · camera: ${v.camera_motion}</p>` +
+    Object.entries(s).map(([k, x]) => `<p>${NAMES[k] || k}: ${x.distinct_vehicles ?? x.events}` +
+      ` ${x.distinct_vehicles != null ? "vehicle(s)" : "time(s)"} (${x.total_s} s)</p>`).join("");
+  loadEvents(id);
+  $("uncertain").onchange = () => loadEvents(id);
+}
+async function loadEvents(id) {
+  const r = await (await fetch(`/api/videos/${id}/events?include_uncertain=${$("uncertain").checked ? 1 : 0}`)).json();
+  const box = $("events"); box.innerHTML = "";
+  if (!r.events.length) box.innerHTML = "<p>No possible incidents found.</p>";
+  for (const e of r.events) {
+    const d = document.createElement("div"); d.className = "ev";
+    d.innerHTML = `<b tabindex="0">${fmt(e.start_s)}–${fmt(e.end_s)} · ${NAMES[e.type] || e.type}</b>
+      ${e.vehicle_class ? "(" + e.vehicle_class + ")" : ""} · confidence ${(e.confidence ?? 0).toFixed(2)}
+      <div class="muted">${e.reason}</div>
+      <button class="sec" data-v="correct">✔ correct</button>
+      <button class="sec" data-v="wrong">✖ wrong</button>
+      <button class="sec" data-v="wrong_type">wrong type</button>`;
+    const jump = () => { $("out").currentTime = e.start_s; $("out").play(); };
+    d.querySelector("b").onclick = jump; d.querySelector("b").onkeydown = (k) => k.key === "Enter" && jump();
+    d.querySelectorAll("button").forEach(b => b.onclick = async () => {
+      await fetch(`/api/events/${e.id}/feedback`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verdict: b.dataset.v }) });
+      b.parentElement.querySelectorAll("button").forEach(x => x.disabled = true); b.textContent += " — thanks";
+    });
+    box.appendChild(d);
+  }
+}
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+if (location.hash.length > 1) watch(location.hash.slice(1));
+</script>
+</body>
+</html>

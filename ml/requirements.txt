@@ -1,0 +1,14 @@
+numpy>=1.26
+opencv-python-headless>=4.9
+PyYAML>=6.0
+scipy>=1.11
+pytest>=8
+# tracking (MIT)
+supervision>=0.22
+# default detector backend: RT-DETR via Hugging Face (Apache-2.0)
+torch
+transformers>=4.45
+# optional backends (install one if chosen; see docs/decisions.md):
+#   rfdetr                (Apache-2.0)
+#   ultralytics           (AGPL-3.0 — read the licence note in roadwatch/detect.py)
+trackers>=2.6   # ByteTrack (Apache-2.0); install with --no-deps if you use opencv-python-headless
