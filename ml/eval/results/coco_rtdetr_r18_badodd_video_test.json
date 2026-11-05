@@ -86,13 +86,13 @@
  },
  "map50_all_classes": 0.198282100363174,
  "map50_all_classes_ci95": [
-  0.1909484856406843,
-  0.20670048213533523
+  0.1794877090933814,
+  0.26642982059970366
  ],
  "map50_predictable_classes": 0.33047016727195666,
  "map50_predictable_classes_ci95": [
-  0.31824747606780723,
-  0.3445008035588921
+  0.29577011813897136,
+  0.40992543205331605
  ],
  "predictable_classes": [
   "person",
@@ -103,6 +103,8 @@
   "truck"
  ],
  "bootstrap_samples": 1000,
+ "bootstrap_unit": "video",
+ "bootstrap_groups": 12,
  "confusion_at_op": {
   "person": {
    "person": 3718,
@@ -185,7 +187,8 @@
  "detector": "hf",
  "model_id": null,
  "split": "..\\data\\processed\\badodd_video\\test",
+ "imgsz": null,
  "conf_floor": 0.01,
  "date": "2026-11-05",
- "seconds": 2283.5
+ "seconds": 399.8
 }

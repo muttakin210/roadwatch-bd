@@ -17,6 +17,9 @@ saved to a manifest that is committed, so every machine (and Kaggle) rebuilds ex
     # build the split folders from the manifest (hard links on the same drive: no extra disk space)
     python scripts/make_group_split.py build --src ../data/processed/badodd \\
         --manifest configs/splits/badodd_video_v1.json --dst ../data/processed/badodd_video
+    # the leakage experiment: leaky/ and clean/ training sets of equal size that share one test set
+    python scripts/make_group_split.py paired --src ../data/processed/badodd \\
+        --manifest configs/splits/badodd_video_v1.json --dst ../data/processed/badodd_paired
 """
 from __future__ import annotations
 
@@ -245,7 +248,7 @@ def cmd_search(a) -> None:
     print(f"\nwritten {a.manifest}")
 
 
-def build(src: Path, manifest: Path, dst: Path) -> Counter:
+def _load(src: Path, manifest: Path, dst: Path) -> tuple[list[Item], dict[str, str]]:
     if dst.exists() and any(dst.iterdir()):
         raise SystemExit(f"{dst} is not empty; delete it first so no stale images stay in a split")
     split_of_video = {v: s for s, vs in json.loads(manifest.read_text(encoding="utf-8"))["splits"].items() for v in vs}
@@ -256,17 +259,69 @@ def build(src: Path, manifest: Path, dst: Path) -> Counter:
     absent = sorted(set(split_of_video) - {it.video for it in items})
     if absent:
         raise SystemExit(f"videos in {manifest.name} but not under {src}: {absent}")
+    return items, split_of_video
+
+
+def _write(dst: Path, its: list[Item]) -> None:
+    (dst / "images").mkdir(parents=True, exist_ok=True)
+    (dst / "labels").mkdir(parents=True, exist_ok=True)
+    for it in its:
+        _link_or_copy(it.image, dst / "images" / it.image.name)
+        _link_or_copy(it.label, dst / "labels" / it.label.name)
+
+
+def build(src: Path, manifest: Path, dst: Path) -> Counter:
+    items, split_of_video = _load(src, manifest, dst)
     for s in SPLITS:
-        (dst / s / "images").mkdir(parents=True, exist_ok=True)
-        (dst / s / "labels").mkdir(parents=True, exist_ok=True)
-    counts = Counter()
-    for it in items:
-        s = split_of_video[it.video]
-        _link_or_copy(it.image, dst / s / "images" / it.image.name)
-        _link_or_copy(it.label, dst / s / "labels" / it.label.name)
-        counts[s] += 1
+        _write(dst / s, [it for it in items if split_of_video[it.video] == s])
+    counts = Counter(split_of_video[it.video] for it in items)
     print("images per split:", {s: counts[s] for s in SPLITS})
     return counts
+
+
+def paired(src: Path, manifest: Path, dst: Path, seed: int = 0) -> dict:
+    """The same test images under two training sets of equal size: one has seen the test videos, one has not.
+
+    The test videos are the manifest's test split. Their frames, in frame order, alternate between the
+    shared test set (even positions) and a leak pool (odd positions: one sampling step from a test
+    frame, as in BadODD's official split). clean/train is the manifest's train split; leaky/train swaps
+    as many randomly chosen clean/train images for the leak pool. Both keep the manifest's val split,
+    so model selection never sees the test videos. Any score difference is the effect of the leak.
+    """
+    items, split_of_video = _load(src, manifest, dst)
+    test_videos = defaultdict(list)
+    for it in items:
+        if split_of_video[it.video] == "test":
+            test_videos[it.video].append(it)
+    test, leak = [], []
+    for v in sorted(test_videos):
+        frames = sorted(test_videos[v], key=lambda it: it.frame)
+        test += frames[0::2]
+        leak += frames[1::2]
+    train = sorted((it for it in items if split_of_video[it.video] == "train"), key=lambda it: it.stem)
+    val = sorted((it for it in items if split_of_video[it.video] == "val"), key=lambda it: it.stem)
+    drop = {it.stem for it in random.Random(seed).sample(train, len(leak))}
+    layouts = {"clean": {"train": train, "val": val, "test": test},
+               "leaky": {"train": [it for it in train if it.stem not in drop] + leak, "val": val, "test": test}}
+    for proto, splits in layouts.items():
+        for s, its in splits.items():
+            _write(dst / proto / s, its)
+
+    def gaps(splits):
+        lab = {it.stem: s for s, its in splits.items() for it in its}
+        return frame_gaps([it for its in splits.values() for it in its], lambda it: lab[it.stem])
+
+    info = {"manifest": manifest.name, "seed": seed, "created": date.today().isoformat(),
+            "about": paired.__doc__.split("\n\n")[1].replace("\n    ", " ").strip(),
+            "images": {p: {s: len(its) for s, its in sp.items()} for p, sp in layouts.items()},
+            "leak_pool_images": len(leak),
+            "test_images_per_video": {v: len(f[0::2]) for v, f in sorted(test_videos.items())},
+            "leakage": {p: gaps(sp) for p, sp in layouts.items()}}
+    (dst / "paired.json").write_text(json.dumps(info, indent=1) + "\n", encoding="utf-8")
+    print("images:", info["images"])
+    for p, g in info["leakage"].items():
+        print(f"  {p}: {g}")
+    return info
 
 
 def main(argv=None) -> None:
@@ -281,11 +336,18 @@ def main(argv=None) -> None:
     b.add_argument("--src", type=Path, required=True)
     b.add_argument("--manifest", type=Path, required=True)
     b.add_argument("--dst", type=Path, required=True)
+    p = sub.add_parser("paired", help="leaky/ and clean/ data roots that share one test set (see paired())")
+    p.add_argument("--src", type=Path, required=True)
+    p.add_argument("--manifest", type=Path, required=True)
+    p.add_argument("--dst", type=Path, required=True)
+    p.add_argument("--seed", type=int, default=0)
     a = ap.parse_args(argv)
     if a.cmd == "search":
         cmd_search(a)
-    else:
+    elif a.cmd == "build":
         build(a.src, a.manifest, a.dst)
+    else:
+        paired(a.src, a.manifest, a.dst, a.seed)
 
 
 if __name__ == "__main__":

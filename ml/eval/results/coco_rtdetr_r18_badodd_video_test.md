@@ -2,9 +2,9 @@
 
 Split `..\data\processed\badodd_video\test` · 2034 images · IoU 0.5 · operating threshold 0.3 · 2026-11-05
 
-**mAP@50, all classes with ground truth:** 0.198 (95 % bootstrap CI 0.191–0.207)
+**mAP@50, all classes with ground truth:** 0.198 (95 % bootstrap CI 0.179–0.266, resampling 12 videos)
 
-**mAP@50, classes the model can output** (person, bicycle, motorcycle, car, bus, truck): 0.330 (95 % CI 0.318–0.345)
+**mAP@50, classes the model can output** (person, bicycle, motorcycle, car, bus, truck): 0.330 (95 % CI 0.296–0.410)
 
 | Class | GT boxes | AP@50 | Precision @op | Recall @op | Model can output it |
 |---|---|---|---|---|---|
