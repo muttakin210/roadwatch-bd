@@ -1,0 +1,193 @@
+{
+ "n_images": 1019,
+ "iou_threshold": 0.5,
+ "operating_conf": 0.3,
+ "per_class": {
+  "person": {
+   "n_gt": 3085,
+   "ap50": 0.5461903242039705,
+   "precision_at_op": 0.4142794182459233,
+   "recall_at_op": 0.6094003241491086,
+   "n_det_at_op": 4538,
+   "model_can_predict": true
+  },
+  "bicycle": {
+   "n_gt": 139,
+   "ap50": 0.10310424683181711,
+   "precision_at_op": 0.1005586592178771,
+   "recall_at_op": 0.5179856115107914,
+   "n_det_at_op": 716,
+   "model_can_predict": true
+  },
+  "rickshaw": {
+   "n_gt": 978,
+   "ap50": 0.0,
+   "precision_at_op": null,
+   "recall_at_op": 0.0,
+   "n_det_at_op": 0,
+   "model_can_predict": false
+  },
+  "motorcycle": {
+   "n_gt": 717,
+   "ap50": 0.4140789369355492,
+   "precision_at_op": 0.37399193548387094,
+   "recall_at_op": 0.5174337517433751,
+   "n_det_at_op": 992,
+   "model_can_predict": true
+  },
+  "cng_autorickshaw": {
+   "n_gt": 1290,
+   "ap50": 0.0,
+   "precision_at_op": null,
+   "recall_at_op": 0.0,
+   "n_det_at_op": 0,
+   "model_can_predict": false
+  },
+  "car": {
+   "n_gt": 611,
+   "ap50": 0.5046519049537451,
+   "precision_at_op": 0.18139963167587478,
+   "recall_at_op": 0.6448445171849427,
+   "n_det_at_op": 2172,
+   "model_can_predict": true
+  },
+  "bus": {
+   "n_gt": 377,
+   "ap50": 0.27761833386425744,
+   "precision_at_op": 0.22827496757457846,
+   "recall_at_op": 0.46684350132625996,
+   "n_det_at_op": 771,
+   "model_can_predict": true
+  },
+  "truck": {
+   "n_gt": 473,
+   "ap50": 0.17977084141614605,
+   "precision_at_op": 0.14568345323741008,
+   "recall_at_op": 0.5137420718816068,
+   "n_det_at_op": 1668,
+   "model_can_predict": true
+  },
+  "ambulance": {
+   "n_gt": 56,
+   "ap50": 0.0,
+   "precision_at_op": null,
+   "recall_at_op": 0.0,
+   "n_det_at_op": 0,
+   "model_can_predict": false
+  },
+  "other": {
+   "n_gt": 31,
+   "ap50": 0.0,
+   "precision_at_op": null,
+   "recall_at_op": 0.0,
+   "n_det_at_op": 0,
+   "model_can_predict": false
+  }
+ },
+ "map50_all_classes": 0.20254145882054858,
+ "map50_all_classes_ci95": [
+  0.18244288816652662,
+  0.27231570246883224
+ ],
+ "map50_predictable_classes": 0.3375690980342476,
+ "map50_predictable_classes_ci95": [
+  0.29927659405538226,
+  0.417511872368324
+ ],
+ "predictable_classes": [
+  "person",
+  "bicycle",
+  "motorcycle",
+  "car",
+  "bus",
+  "truck"
+ ],
+ "bootstrap_samples": 1000,
+ "bootstrap_unit": "video",
+ "bootstrap_groups": 12,
+ "confusion_at_op": {
+  "person": {
+   "person": 1882,
+   "missed": 1177,
+   "car": 15,
+   "truck": 5,
+   "motorcycle": 4,
+   "bicycle": 1,
+   "bus": 1
+  },
+  "bicycle": {
+   "bicycle": 68,
+   "missed": 56,
+   "motorcycle": 9,
+   "person": 6
+  },
+  "rickshaw": {
+   "missed": 572,
+   "bicycle": 129,
+   "person": 86,
+   "motorcycle": 64,
+   "car": 62,
+   "truck": 60,
+   "bus": 5
+  },
+  "motorcycle": {
+   "motorcycle": 351,
+   "missed": 298,
+   "person": 37,
+   "bicycle": 18,
+   "car": 13
+  },
+  "cng_autorickshaw": {
+   "truck": 482,
+   "missed": 350,
+   "car": 265,
+   "bus": 120,
+   "motorcycle": 47,
+   "person": 25,
+   "bicycle": 1
+  },
+  "car": {
+   "car": 330,
+   "missed": 175,
+   "truck": 78,
+   "bus": 23,
+   "person": 2,
+   "motorcycle": 2,
+   "bicycle": 1
+  },
+  "bus": {
+   "missed": 174,
+   "bus": 147,
+   "truck": 28,
+   "car": 28
+  },
+  "truck": {
+   "truck": 196,
+   "missed": 166,
+   "car": 69,
+   "bus": 40,
+   "person": 1,
+   "motorcycle": 1
+  },
+  "ambulance": {
+   "car": 30,
+   "truck": 17,
+   "missed": 8,
+   "bus": 1
+  },
+  "other": {
+   "missed": 24,
+   "truck": 3,
+   "bicycle": 2,
+   "bus": 1,
+   "car": 1
+  }
+ },
+ "detector": "hf",
+ "model_id": null,
+ "split": "..\\data\\processed\\badodd_paired\\clean\\test",
+ "imgsz": null,
+ "conf_floor": 0.01,
+ "date": "2026-11-05",
+ "seconds": 1225.7
+}
