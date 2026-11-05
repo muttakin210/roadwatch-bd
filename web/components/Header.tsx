@@ -14,8 +14,14 @@ export default function Header() {
           {t("appName")}
         </Link>
         <nav className="flex flex-wrap items-center justify-end gap-2">
+          <Link className="btn-secondary text-sm" href="/map">
+            {t("navMap")}
+          </Link>
           <Link className="btn-secondary text-sm" href="/rules">
             {t("navRules")}
+          </Link>
+          <Link className="btn-secondary text-sm" href="/news">
+            {t("navNews")}
           </Link>
           {!loading &&
             (me ? (

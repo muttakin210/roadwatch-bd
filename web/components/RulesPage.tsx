@@ -2,11 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { num, useT, type Lang } from "@/lib/i18n";
-import { CATS, CHECKED, rulesFor, SOURCE_URL, type Cat, type Penalty, type Rule } from "@/lib/rules";
+import { CATS, CHECKED, RULES, rulesFor, SOURCE_URL, type Cat, type Penalty, type Rule } from "@/lib/rules";
+
+// the fines people ask about most, shown first as a quick table (each links to its full rule below)
+const COMMON = ["helmet", "phone", "seatbelt", "wrong-way", "signals", "speed", "parking", "licence", "drunk", "footpath", "horn", "overload"];
 
 const L = {
   en: {
     title: "Traffic rules & fines in Bangladesh",
+    common: "Most common fines",
+    offence: "Offence",
+    maxPen: "Maximum punishment",
     intro:
       "What the Road Transport Act 2018 requires, and the maximum punishment for breaking each rule. A court or mobile court decides the actual fine; it can be lower. Many offences allow prison or a fine or both.",
     all: "All rules",
@@ -47,6 +53,9 @@ const L = {
   },
   bn: {
     title: "বাংলাদেশের ট্রাফিক আইন ও জরিমানা",
+    common: "সবচেয়ে সাধারণ জরিমানা",
+    offence: "অপরাধ",
+    maxPen: "সর্বোচ্চ শাস্তি",
     intro:
       "সড়ক পরিবহণ আইন, ২০১৮ অনুযায়ী কী মানতে হবে এবং প্রতিটি নিয়ম ভাঙলে সর্বোচ্চ কত শাস্তি। প্রকৃত জরিমানা আদালত বা ভ্রাম্যমাণ আদালত ঠিক করেন, যা কম হতে পারে। অনেক অপরাধে কারাদণ্ড, অর্থদণ্ড বা উভয় দণ্ড হতে পারে।",
     all: "সব নিয়ম",
@@ -161,6 +170,32 @@ export default function RulesPage() {
         <h1 className="text-2xl font-bold">{s.title}</h1>
         <p className="text-sm">{s.intro}</p>
       </div>
+
+      <section className="card space-y-2" aria-labelledby="common-fines">
+        <h2 id="common-fines" className="font-semibold text-lg">{s.common}</h2>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-muted border-b border-zinc-200">
+              <th className="py-1.5 pr-2 font-medium">{s.offence}</th>
+              <th className="py-1.5 font-medium">{s.maxPen}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {COMMON.map((id) => RULES.find((r) => r.id === id)).filter((r): r is Rule => !!r).map((r) => (
+              <tr key={r.id} className="border-b border-zinc-100 last:border-0 align-top">
+                <td className="py-2 pr-2">
+                  <a className="underline" href={`#${r.id}`} onClick={() => { setCat("all"); setQ(""); }}>
+                    {r.title[lang]}
+                  </a>
+                </td>
+                <td className="py-2">
+                  <PenaltyBadges p={r.p} lang={lang} s={s} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
 
       <div role="group" aria-label={s.title} className="flex flex-wrap gap-1.5">
         {(["all", ...CATS] as const).map((c) => (
