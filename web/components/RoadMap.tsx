@@ -2,7 +2,10 @@
 
 // Road situation map for all of Bangladesh.
 // - Online with a Google Maps key (NEXT_PUBLIC_GOOGLE_MAPS_KEY): Google Maps with its live traffic layer.
-// - Otherwise, or when the user picks "offline map": MapLibre with the OpenStreetMap pack of Bangladesh
+// - Otherwise MapLibre; online with a TomTom key (NEXT_PUBLIC_TOMTOM_KEY, free tier) it overlays TomTom's live
+//   traffic-flow tiles, refreshed every 2 minutes. Live road speeds always come from one of these providers:
+//   no keyless source exists.
+// - Offline, or when the user picks "offline map": MapLibre with the OpenStreetMap pack of Bangladesh
 //   (PMTiles), read from the browser's saved copy when there is one, so it works with no internet at all.
 // Both show RoadWatch incidents (AI-found jams, reviewer-confirmed violations) and use the same offline place search.
 // Google's terms don't allow saving Google map data for offline use, so the offline map is always OpenStreetMap.
@@ -17,6 +20,10 @@ import { num, useT, type Lang } from "@/lib/i18n";
 import { loadPlaces, majorPlaces, searchPlaces, type Place } from "@/lib/places";
 
 const GOOGLE_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? "";
+const TOMTOM_KEY = process.env.NEXT_PUBLIC_TOMTOM_KEY ?? "";
+const REFRESH_MS = 2 * 60_000; // live traffic and RoadWatch incidents
+const tomtomTiles = (stamp: number) =>
+  [`https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${encodeURIComponent(TOMTOM_KEY)}&tileSize=256&t=${stamp}`];
 const PACK_URL = "/api/map/offline/bd.pmtiles";
 const PACK_CACHE = "rw-offline-map"; // kept by the service worker across updates
 const BD_CENTER: [number, number] = [90.35, 23.7]; // lng, lat
@@ -40,12 +47,17 @@ const L = {
     locate: "My location",
     days: "Incidents from the last",
     d1: "day", d7: "7 days", d30: "30 days",
-    legendLive: "Google live traffic: green = moving, orange = slow, red = jammed",
+    legendLive: "Live traffic",
+    legendSpeeds: ["Moving", "Slow", "Jammed"],
+    live: "Live",
+    updated: (t: string) => `Updated ${t}`,
+    noLive: "Live road speeds aren't switched on yet (needs a Google Maps or TomTom key). The map shows RoadWatch reports from uploaded videos.",
     legendRw: "RoadWatch:",
     aiJam: "AI estimate: not checked by a person",
     verified: "confirmed by a reviewer",
     open: "Open the video",
-    modeGoogle: "Live traffic (Google)",
+    modeLive: "Live traffic",
+    reportsOnly: "RoadWatch reports",
     modeOffline: "Offline map (OpenStreetMap)",
     offlineTitle: "Use the map without internet",
     offlineText: (mb: string) => `Save the whole Bangladesh road map on this device (${mb}). Afterwards the map and place search work with no internet. Live traffic needs internet.`,
@@ -56,11 +68,10 @@ const L = {
     noPack: "The offline map pack hasn't been prepared on the server yet. Place search already works offline.",
     youOffline: "You're offline. Showing the saved map.",
     offlineNoSave: "You're offline and no map is saved on this device. Place search still works. Save the map next time you're online.",
-    noGoogle: "Live traffic isn't set up yet (no Google Maps key). Showing OpenStreetMap.",
     quota: "Not enough storage space on this device to save the map.",
     loadFailed: "The map couldn't load.",
     incidents: "incidents",
-    attribution: "Places: GeoNames (CC BY 4.0). Offline map: © OpenStreetMap contributors, Protomaps.",
+    attribution: "Places: GeoNames (CC BY 4.0). Offline map: © OpenStreetMap contributors, Protomaps. Live traffic: Google or TomTom.",
   },
   bn: {
     title: "সড়ক পরিস্থিতির মানচিত্র",
@@ -70,12 +81,17 @@ const L = {
     locate: "আমার অবস্থান",
     days: "ঘটনা: গত",
     d1: "১ দিন", d7: "৭ দিন", d30: "৩০ দিন",
-    legendLive: "গুগল লাইভ ট্রাফিক: সবুজ = চলছে, কমলা = ধীর, লাল = যানজট",
+    legendLive: "লাইভ ট্রাফিক",
+    legendSpeeds: ["চলছে", "ধীর", "যানজট"],
+    live: "লাইভ",
+    updated: (t: string) => `হালনাগাদ ${t}`,
+    noLive: "লাইভ সড়ক-গতি এখনো চালু হয়নি (গুগল ম্যাপস বা টমটম কী দরকার)। মানচিত্রে আপলোড করা ভিডিও থেকে RoadWatch-এর রিপোর্ট দেখানো হচ্ছে।",
     legendRw: "RoadWatch:",
     aiJam: "এআই অনুমান: কেউ যাচাই করেননি",
     verified: "রিভিউয়ার নিশ্চিত করেছেন",
     open: "ভিডিও দেখুন",
-    modeGoogle: "লাইভ ট্রাফিক (গুগল)",
+    modeLive: "লাইভ ট্রাফিক",
+    reportsOnly: "RoadWatch রিপোর্ট",
     modeOffline: "অফলাইন মানচিত্র (OpenStreetMap)",
     offlineTitle: "ইন্টারনেট ছাড়া মানচিত্র ব্যবহার",
     offlineText: (mb: string) => `পুরো বাংলাদেশের সড়ক মানচিত্র এই ডিভাইসে সংরক্ষণ করুন (${mb})। এরপর ইন্টারনেট ছাড়াই মানচিত্র ও জায়গা খোঁজা চলবে। লাইভ ট্রাফিকের জন্য ইন্টারনেট লাগবে।`,
@@ -86,11 +102,10 @@ const L = {
     noPack: "সার্ভারে অফলাইন মানচিত্র এখনো তৈরি হয়নি। জায়গা খোঁজা এখনই অফলাইনে চলে।",
     youOffline: "আপনি অফলাইনে। সংরক্ষিত মানচিত্র দেখানো হচ্ছে।",
     offlineNoSave: "আপনি অফলাইনে এবং এই ডিভাইসে কোনো মানচিত্র সংরক্ষিত নেই। জায়গা খোঁজা চলবে। পরের বার অনলাইনে মানচিত্র সংরক্ষণ করুন।",
-    noGoogle: "লাইভ ট্রাফিক এখনো চালু হয়নি (গুগল ম্যাপস কী নেই)। OpenStreetMap দেখানো হচ্ছে।",
     quota: "মানচিত্র সংরক্ষণের জন্য ডিভাইসে যথেষ্ট জায়গা নেই।",
     loadFailed: "মানচিত্র লোড করা যায়নি।",
     incidents: "টি ঘটনা",
-    attribution: "জায়গা: GeoNames (CC BY 4.0)। অফলাইন মানচিত্র: © OpenStreetMap contributors, Protomaps।",
+    attribution: "জায়গা: GeoNames (CC BY 4.0)। অফলাইন মানচিত্র: © OpenStreetMap contributors, Protomaps। লাইভ ট্রাফিক: Google বা TomTom।",
   },
 } as const;
 
@@ -184,15 +199,19 @@ const OSM_RASTER: maplibregl.StyleSpecification = {
 };
 
 // ------------------------------------------------------------------ component
+type Focus = (p: { lat: number; lng: number }, zoom?: number) => void;
+
 export default function RoadMap() {
   const { t, lang } = useT();
   const s = L[lang];
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
   const [wantOffline, setWantOffline] = useState(false);
   const useGoogle = !!GOOGLE_KEY && online && !wantOffline;
+  const liveOn = online && !wantOffline && (!!GOOGLE_KEY || !!TOMTOM_KEY);
 
   const [days, setDays] = useState(7);
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [pack, setPack] = useState<PackInfo | null>(null);
   const [saved, setSaved] = useState<number | null>(null); // bytes saved on this device
   const [progress, setProgress] = useState<number | null>(null);
@@ -203,7 +222,12 @@ export default function RoadMap() {
   const [mapError, setMapError] = useState(false);
 
   const el = useRef<HTMLDivElement>(null);
-  const focus = useRef<(p: { lat: number; lng: number }, zoom?: number) => void>(() => {});
+  const focus = useRef<Focus>(() => {});
+  // The map is built once per mode. Incidents and live-traffic tiles are updated in place, so the 2-minute
+  // refresh never resets where the user has panned or zoomed.
+  const showIncidents = useRef<(list: Incident[]) => void>(() => {});
+  const refreshLive = useRef<() => void>(() => {});
+  const incidentsNow = useRef<Incident[]>([]);
 
   useEffect(() => {
     loadPlaces().then(setPlaces, () => {});
@@ -213,19 +237,42 @@ export default function RoadMap() {
     if (!online) return;
     call<PackInfo>("/api/map/offline").then(setPack, () => setPack({ available: false }));
   }, [online]);
+
+  // RoadWatch incidents and live traffic: now, then every 2 minutes while the page is visible
   useEffect(() => {
     if (!online) return;
     let live = true;
-    call<{ incidents: Incident[] }>(`/api/map/incidents?days=${days}`).then((r) => live && setIncidents(r.incidents), () => {});
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      call<{ incidents: Incident[] }>(`/api/map/incidents?days=${days}`).then(
+        (r) => {
+          if (!live) return;
+          setIncidents(r.incidents);
+          setUpdatedAt(Date.now());
+        },
+        () => {},
+      );
+      refreshLive.current();
+    };
+    tick();
+    const id = window.setInterval(tick, REFRESH_MS);
+    document.addEventListener("visibilitychange", tick);
     return () => {
       live = false;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
     };
   }, [days, online]);
+  useEffect(() => {
+    incidentsNow.current = incidents;
+    showIncidents.current(incidents);
+  }, [incidents]);
 
   const popup = useCallback(
     (i: Incident) => {
       const box = document.createElement("div");
       box.style.fontSize = "13px";
+      box.style.lineHeight = "1.45";
       const title = document.createElement("b");
       title.textContent = t(`ev_${i.type}`) + (i.vehicle_class ? ` (${t(`cls_${i.vehicle_class}`)})` : "");
       const note = document.createElement("div");
@@ -239,12 +286,17 @@ export default function RoadMap() {
     },
     [t, lang, s],
   );
+  const popupRef = useRef(popup);
+  useEffect(() => {
+    popupRef.current = popup;
+  }, [popup]);
 
-  // ---- Google map
+  // ---- Google map (built once; markers follow the incident list)
   useEffect(() => {
     if (!useGoogle || !el.current) return;
     let alive = true;
-    const overlays: GOverlay[] = [];
+    let overlays: GOverlay[] = [];
+    let traffic: GOverlay | null = null;
     loadGoogle().then(
       (g) => {
         if (!alive || !el.current) return;
@@ -256,25 +308,34 @@ export default function RoadMap() {
           restriction: { latLngBounds: { west: BD_BOUNDS[0][0], south: BD_BOUNDS[0][1], east: BD_BOUNDS[1][0], north: BD_BOUNDS[1][1] } },
           streetViewControl: false,
           mapTypeControl: false,
+          fullscreenControl: false,
           gestureHandling: "greedy",
         });
-        const traffic = new g.TrafficLayer();
+        traffic = new g.TrafficLayer();
         traffic.setMap(map);
-        overlays.push(traffic);
+        // Google also refreshes the layer by itself; re-attaching fetches the newest picture now
+        refreshLive.current = () => {
+          traffic?.setMap(null);
+          traffic?.setMap(map);
+        };
         const info = new g.InfoWindow();
-        for (const i of incidents) {
-          const m = new g.Marker({
-            map,
-            position: { lat: i.lat, lng: i.lng },
-            title: t(`ev_${i.type}`),
-            icon: { path: g.SymbolPath.CIRCLE, scale: 8, fillColor: COLORS[i.type] ?? "#52525b", fillOpacity: 0.9, strokeColor: "#fff", strokeWeight: 2 },
+        showIncidents.current = (list) => {
+          overlays.forEach((o) => o.setMap(null));
+          overlays = list.map((i) => {
+            const m = new g.Marker({
+              map,
+              position: { lat: i.lat, lng: i.lng },
+              title: t(`ev_${i.type}`),
+              icon: { path: g.SymbolPath.CIRCLE, scale: 8, fillColor: COLORS[i.type] ?? "#52525b", fillOpacity: 0.9, strokeColor: "#fff", strokeWeight: 2 },
+            });
+            m.addListener("click", () => {
+              info.setContent(popupRef.current(i));
+              info.open({ map, anchor: m });
+            });
+            return m;
           });
-          m.addListener("click", () => {
-            info.setContent(popup(i));
-            info.open({ map, anchor: m });
-          });
-          overlays.push(m);
-        }
+        };
+        showIncidents.current(incidentsNow.current);
         let pin: GOverlay | null = null;
         focus.current = (p, zoom = 14) => {
           map.panTo(p);
@@ -288,15 +349,26 @@ export default function RoadMap() {
     return () => {
       alive = false;
       overlays.forEach((o) => o.setMap(null));
+      traffic?.setMap(null);
+      showIncidents.current = () => {};
+      refreshLive.current = () => {};
     };
-  }, [useGoogle, incidents, popup, t]);
+  }, [useGoogle, t]);
 
-  // ---- MapLibre map (offline pack, or OpenStreetMap online)
+  // ---- MapLibre map (offline pack, or OpenStreetMap online, plus TomTom live traffic when there's a key)
   useEffect(() => {
     if (useGoogle || !el.current) return;
     let map: maplibregl.Map | null = null;
     let alive = true;
     const markers: maplibregl.Marker[] = [];
+    const geo = (list: Incident[]): GeoJSON.FeatureCollection => ({
+      type: "FeatureCollection",
+      features: list.map((i) => ({
+        type: "Feature",
+        properties: { id: i.id, color: COLORS[i.type] ?? "#52525b" },
+        geometry: { type: "Point", coordinates: [i.lng, i.lat] },
+      })),
+    });
     (async () => {
       const blob = await savedPack().catch(() => null);
       let style: maplibregl.StyleSpecification | null = null;
@@ -312,38 +384,36 @@ export default function RoadMap() {
       }
       if (!alive || !el.current || !style) return;
       setMapError(false);
-      map = new maplibregl.Map({ container: el.current, style, center: BD_CENTER, zoom: 6.3, minZoom: 5.5, maxBounds: BD_BOUNDS, attributionControl: { compact: true } });
+      map = new maplibregl.Map({
+        container: el.current,
+        style,
+        center: BD_CENTER,
+        zoom: 6.3,
+        minZoom: 5.5,
+        maxBounds: BD_BOUNDS,
+        attributionControl: { compact: true },
+      });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
       map.on("error", (e) => console.warn("map", e.error?.message));
       map.on("load", () => {
         if (!map) return;
-        map.addSource("incidents", {
-          type: "geojson",
-          data: {
-            type: "FeatureCollection",
-            features: incidents.map((i) => ({ type: "Feature", properties: { id: i.id }, geometry: { type: "Point", coordinates: [i.lng, i.lat] } })),
-          },
-        });
+        if (online && TOMTOM_KEY && !wantOffline) {
+          map.addSource("live", { type: "raster", tiles: tomtomTiles(Date.now()), tileSize: 256, attribution: "Traffic © TomTom" });
+          map.addLayer({ id: "live", type: "raster", source: "live", paint: { "raster-opacity": 0.85, "raster-fade-duration": 400 } });
+          refreshLive.current = () => (map?.getSource("live") as maplibregl.RasterTileSource | undefined)?.setTiles(tomtomTiles(Date.now()));
+        }
+        map.addSource("incidents", { type: "geojson", data: geo(incidentsNow.current) });
         map.addLayer({
           id: "incidents",
           type: "circle",
           source: "incidents",
-          paint: {
-            "circle-radius": 7,
-            "circle-stroke-width": 2,
-            "circle-stroke-color": "#ffffff",
-            "circle-color": [
-              "match",
-              ["get", "id"],
-              ...incidents.flatMap((i) => [i.id, COLORS[i.type] ?? "#52525b"]),
-              "#52525b",
-            ] as unknown as maplibregl.ExpressionSpecification,
-          },
+          paint: { "circle-radius": 7, "circle-stroke-width": 2, "circle-stroke-color": "#ffffff", "circle-color": ["get", "color"] },
         });
+        showIncidents.current = (list) => (map?.getSource("incidents") as maplibregl.GeoJSONSource | undefined)?.setData(geo(list));
         map.on("click", "incidents", (e) => {
           const id = e.features?.[0]?.properties?.id;
-          const i = incidents.find((x) => x.id === id);
-          if (i && map) new maplibregl.Popup().setLngLat([i.lng, i.lat]).setDOMContent(popup(i)).addTo(map);
+          const i = incidentsNow.current.find((x) => x.id === id);
+          if (i && map) new maplibregl.Popup().setLngLat([i.lng, i.lat]).setDOMContent(popupRef.current(i)).addTo(map);
         });
         map.on("mouseenter", "incidents", () => map && (map.getCanvas().style.cursor = "pointer"));
         map.on("mouseleave", "incidents", () => map && (map.getCanvas().style.cursor = ""));
@@ -359,7 +429,10 @@ export default function RoadMap() {
       }
       let pin: maplibregl.Marker | null = null;
       focus.current = (p, zoom = 13) => {
-        map?.flyTo({ center: [p.lng, p.lat], zoom });
+        // a calm flight; people who reduce motion get an instant jump
+        const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (calm) map?.jumpTo({ center: [p.lng, p.lat], zoom });
+        else map?.flyTo({ center: [p.lng, p.lat], zoom, speed: 0.8, curve: 1.3 });
         pin?.remove();
         if (map) pin = new maplibregl.Marker({ color: "#0b6e4f" }).setLngLat([p.lng, p.lat]).addTo(map);
       };
@@ -368,8 +441,10 @@ export default function RoadMap() {
       alive = false;
       markers.forEach((m) => m.remove());
       map?.remove();
+      showIncidents.current = () => {};
+      refreshLive.current = () => {};
     };
-  }, [useGoogle, online, pack, saved, incidents, places, lang, popup]);
+  }, [useGoogle, wantOffline, online, pack, saved, places, lang]);
 
   // ---- save / remove the offline pack
   async function saveOffline() {
@@ -419,47 +494,46 @@ export default function RoadMap() {
       { enableHighAccuracy: true, timeout: 10_000 },
     );
 
-  const note = !online ? (saved ? s.youOffline : s.offlineNoSave) : !GOOGLE_KEY ? s.noGoogle : null;
-  const chip = (on: boolean) => `rounded-full border px-3 py-1 text-sm ${on ? "bg-brand text-white border-brand" : "bg-white border-zinc-300 hover:bg-zinc-50"}`;
+  const note = !online ? (saved ? s.youOffline : s.offlineNoSave) : !GOOGLE_KEY && !TOMTOM_KEY ? s.noLive : null;
+  const clock = updatedAt
+    ? new Date(updatedAt).toLocaleTimeString(lang === "bn" ? "bn-BD" : "en-GB", { hour: "2-digit", minute: "2-digit" })
+    : null;
+  const count = lang === "bn" ? `${num(incidents.length, lang)}${s.incidents}` : `${incidents.length} ${s.incidents}`;
 
   return (
-    <div className="space-y-3">
-      <div>
-        <h1 className="text-2xl font-bold">{s.title}</h1>
-        <p className="text-sm">{s.intro}</p>
-      </div>
-
-      <div className="relative">
-        <input className="input" type="search" value={q} onChange={(e) => {
-            setQ(e.target.value);
-            setPicked(false);
-          }} placeholder={s.search} aria-label={s.search} />
-        {q.trim().length >= 2 && places.length > 0 && !picked && (
-          <ul className="absolute z-[1000] mt-1 w-full max-h-72 overflow-auto rounded-lg border border-zinc-300 bg-white shadow-lg" role="listbox" aria-label={s.search}>
-            {results.length === 0 && <li className="px-3 py-2 text-sm text-muted">{s.noMatch}</li>}
-            {results.map((p) => (
-              <li key={`${p.name}${p.lat}${p.lng}`}>
-                <button type="button" role="option" aria-selected={false} className="w-full text-left px-3 py-2 hover:bg-zinc-50 text-sm" onClick={() => pick(p)}>
-                  <b>{lang === "bn" && p.bn ? p.bn : p.name}</b>
-                  <span className="text-muted"> · {[lang === "bn" ? p.name : p.bn, p.division].filter(Boolean).join(" · ")}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+    <div className="rw-bleed space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold">{s.title}</h1>
+          <p className="text-sm text-muted mt-1">{s.intro}</p>
+        </div>
+        {online && (
+          <p className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium shadow-sm">
+            {liveOn ? <span className="rw-live-dot" aria-hidden="true" /> : <span className="h-2 w-2 rounded-full bg-zinc-400" aria-hidden="true" />}
+            {liveOn ? s.live : s.reportsOnly}
+            {clock && <span className="text-muted font-normal">· {s.updated(clock)}</span>}
+          </p>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        {GOOGLE_KEY && online && (
-          <>
-            <button type="button" className={chip(!wantOffline)} aria-pressed={!wantOffline} onClick={() => setWantOffline(false)}>{s.modeGoogle}</button>
-            <button type="button" className={chip(wantOffline)} aria-pressed={wantOffline} onClick={() => setWantOffline(true)}>{s.modeOffline}</button>
-          </>
+      <div className="flex flex-wrap items-center gap-2">
+        {(GOOGLE_KEY || TOMTOM_KEY) && online && (
+          <div className="inline-flex rounded-full border border-zinc-300 bg-white p-0.5" role="group" aria-label={s.title}>
+            <button type="button" className="chip !border-0" aria-pressed={!wantOffline} onClick={() => setWantOffline(false)}>{s.modeLive}</button>
+            <button type="button" className="chip !border-0" aria-pressed={wantOffline} onClick={() => setWantOffline(true)}>{s.modeOffline}</button>
+          </div>
         )}
-        <button type="button" className="btn-secondary text-sm" onClick={locate}>📍 {s.locate}</button>
-        <label className="text-sm flex items-center gap-1.5 ml-auto">
-          {s.days}
-          <select className="input !w-auto !py-1 text-sm" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+        <button type="button" className="btn-secondary text-sm" onClick={locate}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <circle cx="12" cy="12" r="7" />
+            <path d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+          </svg>
+          {s.locate}
+        </button>
+        <label className="text-sm flex items-center gap-2 ml-auto">
+          <span className="text-muted">{s.days}</span>
+          <select className="input !w-auto !min-h-0 !py-1 text-sm" value={days} onChange={(e) => setDays(Number(e.target.value))}>
             <option value={1}>{s.d1}</option>
             <option value={7}>{s.d7}</option>
             <option value={30}>{s.d30}</option>
@@ -467,27 +541,78 @@ export default function RoadMap() {
         </label>
       </div>
 
-      {note && <p className="text-sm rounded-lg bg-amber-50 border border-amber-300 p-2" role="status">{note}</p>}
+      {note && <p className="text-sm rounded-lg bg-amber-50 border border-amber-200 px-3 py-2" role="status">{note}</p>}
       {mapError && <p className="text-sm text-red-700" role="alert">{s.loadFailed}</p>}
 
-      <div ref={el} className="h-[60vh] min-h-80 w-full rounded-xl border border-zinc-300 bg-zinc-100" aria-label={s.title} role="region" />
+      <div className="relative">
+        <div
+          ref={el}
+          className="h-[calc(100dvh-20rem)] min-h-[420px] w-full overflow-hidden rounded-[var(--radius)] border border-zinc-200 bg-zinc-100 shadow-sm"
+          aria-label={s.title}
+          role="region"
+        />
 
-      <div className="text-xs space-y-1">
-        {useGoogle && <p>{s.legendLive}</p>}
-        <p className="flex flex-wrap gap-x-3 gap-y-1">
-          <span>{s.legendRw}</span>
-          {Object.entries(COLORS).map(([k, c]) => (
-            <span key={k} className="inline-flex items-center gap-1">
-              <span className="inline-block h-3 w-3 rounded-full border-2 border-white" style={{ background: c, boxShadow: "0 0 0 1px #d4d4d8" }} />
-              {t(`ev_${k}`)}
-            </span>
-          ))}
-          <span className="text-muted">· {lang === "bn" ? `${num(incidents.length, lang)}${s.incidents}` : `${incidents.length} ${s.incidents}`}</span>
-        </p>
-        <p className="text-muted">{t("ev_congestion_jam")}: {s.aiJam}. {s.verified}: {t("ev_wrong_way")}, {t("ev_bus_midroad_stop")}, {t("ev_u_turn")}.</p>
+        {/* search floats over the map, as in native map apps */}
+        <div className="absolute left-3 right-14 top-3 z-10 sm:right-auto sm:w-96">
+          <div className="rw-float bg-white">
+            <input
+              className="input !border-0"
+              type="search"
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPicked(false);
+              }}
+              placeholder={s.search}
+              aria-label={s.search}
+            />
+          </div>
+          {q.trim().length >= 2 && places.length > 0 && !picked && (
+            <ul className="rw-float mt-2 max-h-72 overflow-auto border border-zinc-200 bg-white py-1" role="listbox" aria-label={s.search}>
+              {results.length === 0 && <li className="px-3 py-2 text-sm text-muted">{s.noMatch}</li>}
+              {results.map((p) => (
+                <li key={`${p.name}${p.lat}${p.lng}`}>
+                  <button type="button" role="option" aria-selected={false} className="w-full text-left px-3 py-2 hover:bg-zinc-50 text-sm transition-colors" onClick={() => pick(p)}>
+                    <b className="font-medium">{lang === "bn" && p.bn ? p.bn : p.name}</b>
+                    <span className="text-muted"> · {[lang === "bn" ? p.name : p.bn, p.division].filter(Boolean).join(" · ")}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* legend floats bottom-left */}
+        <div className="rw-float absolute left-3 bottom-8 z-[5] max-w-[calc(100%-1.5rem)] bg-white/95 px-3 py-2 text-xs space-y-1.5">
+          {liveOn && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-semibold">{s.legendLive}</span>
+              {["#16a34a", "#f59e0b", "#dc2626"].map((c, k) => (
+                <span key={c} className="inline-flex items-center gap-1">
+                  <span className="inline-block h-1.5 w-5 rounded-full" style={{ background: c }} />
+                  {s.legendSpeeds[k]}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="font-semibold">{s.legendRw}</span>
+            {Object.entries(COLORS).map(([k, c]) => (
+              <span key={k} className="inline-flex items-center gap-1">
+                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: c, boxShadow: "0 0 0 2px #fff, 0 0 0 3px #d4d4d8" }} />
+                {t(`ev_${k}`)}
+              </span>
+            ))}
+            <span className="text-muted">· {count}</span>
+          </div>
+        </div>
       </div>
 
-      <section className="card space-y-2">
+      <p className="text-xs text-muted">
+        {t("ev_congestion_jam")}: {s.aiJam}. {s.verified}: {t("ev_wrong_way")}, {t("ev_bus_midroad_stop")}, {t("ev_u_turn")}.
+      </p>
+
+      <section className="card space-y-2 max-w-3xl">
         <h2 className="font-semibold">{s.offlineTitle}</h2>
         {saved ? (
           <>
@@ -502,7 +627,7 @@ export default function RoadMap() {
             ) : (
               <>
                 <p className="text-sm">{s.saving} {num(Math.round(progress * 100), lang)}%</p>
-                <progress className="w-full" max={1} value={progress} />
+                <progress className="w-full accent-[#0b6e4f]" max={1} value={progress} />
               </>
             )}
           </>

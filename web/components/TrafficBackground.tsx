@@ -1,18 +1,17 @@
 // Decorative traffic along the bottom of the screen: buses, CNGs, rickshaws, cars and bikes in both
 // directions on a two-lane road. Pure CSS (no JS, no requests), behind all content, ignored by screen readers
 // and not clickable. It stands still for people who ask their system to reduce motion (see globals.css).
+// Slow, evenly spaced and few: gentle movement at the edge of vision, never a distraction.
 const LANE_LEFT = [   // left-hand traffic: the near lane drives left → right
-  { k: "bus", d: 26, delay: 0 },
-  { k: "cng", d: 18, delay: -6 },
-  { k: "car", d: 15, delay: -11 },
-  { k: "rickshaw", d: 34, delay: -20 },
-  { k: "bike", d: 12, delay: -3 },
+  { k: "bus", d: 64, delay: 0 },
+  { k: "cng", d: 52, delay: -18 },
+  { k: "rickshaw", d: 80, delay: -40 },
+  { k: "car", d: 46, delay: -30 },
 ] as const;
 const LANE_RIGHT = [
-  { k: "car", d: 17, delay: -2 },
-  { k: "bus", d: 29, delay: -14 },
-  { k: "bike", d: 13, delay: -8 },
-  { k: "cng", d: 20, delay: -17 },
+  { k: "car", d: 50, delay: -6 },
+  { k: "bus", d: 70, delay: -35 },
+  { k: "bike", d: 42, delay: -20 },
 ] as const;
 
 function Vehicle({ k }: { k: string }) {
@@ -72,7 +71,7 @@ function Vehicle({ k }: { k: string }) {
 
 export default function TrafficBackground() {
   return (
-    <div aria-hidden="true" className="traffic-bg pointer-events-none fixed inset-x-0 bottom-0 -z-10 h-36 overflow-hidden select-none">
+    <div aria-hidden="true" className="traffic-bg pointer-events-none fixed inset-x-0 -z-10 h-36 overflow-hidden select-none">
       <div className="absolute inset-x-0 bottom-0 h-24 bg-zinc-200/60" />
       <div className="traffic-dashes absolute inset-x-0 bottom-12 h-1" />
       {LANE_RIGHT.map((v, i) => (

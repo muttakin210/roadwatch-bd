@@ -140,6 +140,11 @@ A permanent address needs a named Cloudflare tunnel on your own domain (free Clo
   `http://localhost:3000/*`, and to the Maps JavaScript API only. Then set it on Vercel and redeploy:
   `printf '%s' "<key>" | vercel env add NEXT_PUBLIC_GOOGLE_MAPS_KEY production --force; vercel deploy --prod`.
   Without a key the map shows OpenStreetMap.
+- **Live traffic without Google billing (TomTom)**: a free TomTom developer key (no card; about 50,000 map tiles
+  a day) adds TomTom's live traffic-flow colours on top of the OpenStreetMap map:
+  `printf '%s' "<key>" | vercel env add NEXT_PUBLIC_TOMTOM_KEY production --force; vercel deploy --prod`.
+  If both keys are set, Google is used. Live traffic and RoadWatch incidents refresh every 2 minutes while the
+  page is open. Live road speeds always need one of these providers: there is no free keyless source.
 - **Offline map pack**: Google's terms don't allow saving Google map data offline, so the offline map is an
   OpenStreetMap extract of Bangladesh. Build it once with the [pmtiles CLI](https://github.com/protomaps/go-pmtiles/releases)
   from the newest [Protomaps build](https://maps.protomaps.com/builds/):
@@ -148,8 +153,15 @@ A permanent address needs a named Cloudflare tunnel on your own domain (free Clo
       --bbox=88.0,20.55,92.7,26.65 --maxzoom=14
   ```
   The backend serves it at `/api/map/offline/bd.pmtiles`, and the map page offers "Save map for offline".
-- **Place search** works offline from `web/public/data/bd-places.json` (GeoNames, CC BY 4.0, about 50,000 places).
+- **Place search** works offline from `web/public/geo/bd-places.json` (GeoNames, CC BY 4.0, about 50,000 places).
   It lacks many Dhaka neighbourhoods and landmarks (for example Farmgate).
+
+### Look per platform
+
+`app/layout.tsx` tags `<html data-os="ios|android|mac|windows|linux">` before the first paint, and
+`globals.css` gives each platform its system font (SF, Roboto, Segoe UI Variable), corner radius and touch-target
+size. On phones the main sections move to a bottom tab bar (iOS style on iPhone, Material 3 style on Android).
+Animations are slow and faint, and stop for people who turn on "reduce motion".
 
 ### Cross-browser tests
 
@@ -162,6 +174,9 @@ npx playwright install webkit firefox
 $env:ROADWATCH_AUTH_LIMIT=500; ..\ml\.venv\Scripts\uvicorn app:app --port 8000   # in backend/
 npx playwright test e2e/pwa.spec.ts e2e/accounts.spec.ts e2e/admin.spec.ts
 ```
+
+While the public site's backend holds port 8000, run the tests on other ports:
+`E2E_API_PORT=8100 E2E_WEB_PORT=3100 npx playwright test --workers=3`.
 
 Playwright's WebKit build for Windows can't decode H.264 (real Safari can), so on `iphone` the upload
 test takes the "browser can't preview this video" path: upload without trim/arrows.

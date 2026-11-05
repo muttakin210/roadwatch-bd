@@ -54,7 +54,7 @@ export default function ServiceWorker() {
       <div
         role="region"
         aria-label={t("install")}
-        className="fixed inset-x-0 bottom-0 z-50 bg-brand text-white text-sm shadow-lg"
+        className="rw-above-tabbar fixed inset-x-0 z-50 bg-brand text-white text-sm shadow-lg"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="mx-auto max-w-3xl px-4 py-2 flex flex-wrap items-center gap-2">

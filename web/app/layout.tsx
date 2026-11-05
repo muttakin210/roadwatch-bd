@@ -27,14 +27,21 @@ export const viewport: Viewport = {
   themeColor: "#0b6e4f",
 };
 
+// Runs before the first paint: tags <html data-os="…"> so globals.css can give each platform its native
+// font, corners and control sizes (no flash of the wrong look). iPadOS reports itself as a Mac with touch.
+const DETECT_OS = `(function(){try{var n=navigator,u=n.userAgent||"",p=(n.userAgentData&&n.userAgentData.platform)||n.platform||"",o=/android/i.test(u)?"android":/iphone|ipad|ipod/i.test(u)||(/mac/i.test(p)&&n.maxTouchPoints>1)?"ios":/mac/i.test(p)?"mac":/win/i.test(p)?"windows":/linux|cros|x11/i.test(p+" "+u)?"linux":"other";document.documentElement.setAttribute("data-os",o)}catch(e){}})()`;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${bengali.variable} h-full antialiased`}>
+    <html lang="en" className={`${geistSans.variable} ${bengali.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: DETECT_OS }} />
+      </head>
       <body className="min-h-full flex flex-col font-sans">
         <I18nProvider>
           <AuthProvider>
             <Header />
-            <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">{children}</main>
+            <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 md:py-8">{children}</main>
             <ServiceWorker />
             <TrafficBackground />
           </AuthProvider>
