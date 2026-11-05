@@ -99,6 +99,34 @@ the LAN (`http://<this-pc-ip>:3000`) but can only install it once it's deployed 
 The service worker (`web/public/sw.js`) caches only the app shell; `/api/` (videos, results, accounts)
 is never cached.
 
+### Public deployment (Vercel + this PC)
+
+The website runs on Vercel (`vercel.json`: one public service, `web`). The backend stays on this PC: the
+pipeline needs minutes of CPU per video, a persistent disk and background processing, which Vercel
+functions don't provide. `web/proxy.ts` forwards `/api/*` to `ROADWATCH_API` with a shared secret.
+
+```
+browser ──https──▶ Vercel (web) ──proxy.ts + secret──▶ Cloudflare tunnel ──▶ uvicorn :8000 on this PC
+```
+
+- Secret: `data/platform/proxy_secret.txt` (git-ignored). The backend started with
+  `ROADWATCH_PROXY_SECRET` refuses every request without it, so the tunnel URL alone is useless.
+- Vercel env (production + preview): `ROADWATCH_API` = tunnel URL, `ROADWATCH_PROXY_SECRET`.
+- The site only works while this PC, the backend and the tunnel are running.
+
+Start (Git Bash, from the repo root):
+
+```bash
+export ROADWATCH_PROXY_SECRET="$(tr -d '\r\n' < data/platform/proxy_secret.txt)"
+(cd backend && ../ml/.venv/Scripts/python -m uvicorn app:app --port 8000) &
+"/c/Program Files (x86)/cloudflared/cloudflared.exe" tunnel --no-autoupdate --url http://127.0.0.1:8000
+# a quick tunnel gets a NEW https://….trycloudflare.com address each start: point Vercel at it
+printf '%s' "https://<new>.trycloudflare.com" | vercel env add ROADWATCH_API production --force
+vercel deploy --prod
+```
+
+A permanent address needs a named Cloudflare tunnel on your own domain (free Cloudflare account).
+
 ### Cross-browser tests
 
 `playwright.config.ts` has one project per platform: `android` (Pixel 7), `iphone`, `ipad`,
