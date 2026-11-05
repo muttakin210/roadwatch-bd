@@ -8,3 +8,6 @@ ml/.venv/
 *.mov
 *.onnx
 *.pt
+
+# generated detector-eval caches (pickles: never publish)
+ml/eval/results/*.pkl
