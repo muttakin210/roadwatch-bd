@@ -42,3 +42,7 @@ CREATE TABLE IF NOT EXISTS rewards(
   amount_bdt INT NOT NULL, status TEXT NOT NULL DEFAULT 'credited', created_at REAL);
 CREATE INDEX IF NOT EXISTS rewards_user ON rewards(user_id);
 CREATE INDEX IF NOT EXISTS videos_user ON videos(user_id);
+-- Every admin action, for accountability (backend/admin.py).
+CREATE TABLE IF NOT EXISTS admin_log(
+  id TEXT PRIMARY KEY, admin_id TEXT NOT NULL, action TEXT NOT NULL, target TEXT, detail TEXT, created_at REAL);
+CREATE INDEX IF NOT EXISTS admin_log_time ON admin_log(created_at);

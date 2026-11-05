@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 import accounts
+import admin
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ml"))
@@ -116,6 +117,25 @@ def _enqueue(video_id: str) -> str:
     _progress[video_id] = {"step": "queued", "progress": 0}
     pool.submit(_process, video_id, job_id)
     return job_id
+
+
+admin.setup(db=db, uploads=UPLOADS, results=RESULTS, enqueue=_enqueue, progress=_progress,
+            info=lambda: {"detector": DETECTOR, "daily_upload_limit_per_ip": DAILY_LIMIT_PER_IP,
+                          "max_upload_mb": MAX_BYTES // (1024 * 1024)})
+app.include_router(admin.router)
+
+
+def _visible(vid: str, request: Request) -> sqlite3.Row:
+    """404 for unknown videos, and for hidden ones unless you're the uploader or staff."""
+    with db() as c:
+        v = c.execute("SELECT user_id, moderation_status FROM videos WHERE id=?", (vid,)).fetchone()
+    if not v:
+        raise HTTPException(404)
+    if v["moderation_status"] == "hidden":
+        me = accounts.current_user(request)
+        if not (me and (me["id"] == v["user_id"] or me["role"] in ("reviewer", "police", "admin"))):
+            raise HTTPException(404)
+    return v
 
 
 # --------------------------------------------------------------------------- API
@@ -259,10 +279,11 @@ async def create_video(request: Request):
 
 
 @app.get("/api/videos/{vid}/events.json")
-def events_json(vid: str):
+def events_json(vid: str, request: Request):
     """Downloadable report (no video, no plates)."""
     if not (len(vid) == 32 and vid.isalnum()):
         raise HTTPException(404)
+    _visible(vid, request)
     p = RESULTS / vid / "events.json"
     if not p.exists():
         raise HTTPException(404)
@@ -271,6 +292,7 @@ def events_json(vid: str):
 
 @app.get("/api/videos/{vid}")
 def get_video(vid: str, request: Request):
+    _visible(vid, request)
     me = accounts.current_user(request)
     with db() as c:
         v = c.execute("SELECT id, user_id, status, duration_s, camera_type, created_at FROM videos WHERE id=?",
@@ -305,6 +327,7 @@ def _notes(vid: str) -> list[dict]:
 
 @app.get("/api/videos/{vid}/events")
 def get_events(vid: str, request: Request, include_uncertain: int = 0):
+    _visible(vid, request)
     me = accounts.current_user(request)
     with db() as c:
         job = c.execute("SELECT job_id FROM results WHERE video_id=? ORDER BY rowid DESC LIMIT 1", (vid,)).fetchone()
@@ -351,10 +374,11 @@ async def stream(vid: str):
 
 
 @app.get("/api/videos/{vid}/annotated")
-def annotated(vid: str):
+def annotated(vid: str, request: Request):
     """Only the blurred, annotated video is ever served (PLAN §5.7, §8.7)."""
     if not (len(vid) == 32 and vid.isalnum()):
         raise HTTPException(404)
+    _visible(vid, request)
     p = RESULTS / vid / "annotated.mp4"
     if not p.exists():
         raise HTTPException(404)
@@ -399,7 +423,10 @@ class Report(BaseModel):
 @app.post("/api/videos/{vid}/report")
 def report(vid: str, r: Report):
     with db() as c:
-        c.execute("UPDATE videos SET moderation_status='pending' WHERE id=?", (vid,))
+        if not c.execute("SELECT 1 FROM videos WHERE id=?", (vid,)).fetchone():
+            raise HTTPException(404)
+        # flag for the admin panel; never un-hide a video an admin has hidden
+        c.execute("UPDATE videos SET moderation_status='pending' WHERE id=? AND moderation_status != 'hidden'", (vid,))
         c.execute("INSERT INTO reports(id, video_id, reason, created_at) VALUES (?,?,?,?)",
                   (uuid.uuid4().hex, vid, r.reason[:1000], time.time()))
     return {"ok": True}
