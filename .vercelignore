@@ -1,0 +1,21 @@
+# Only the website (web/) deploys to Vercel; the backend runs on our own machine (see README).
+# Never upload datasets, model weights, videos or local state.
+data/
+ml/
+backend/
+docs/
+**/.venv/
+**/node_modules/
+web/.next/
+web/test-results/
+web/e2e/out/
+web/e2e/fixtures/
+*.mp4
+*.mov
+*.zip
+*.pt
+*.onnx
+*.safetensors
+*.pkl
+*.sqlite
+.env*
