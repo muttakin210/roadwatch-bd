@@ -10,6 +10,10 @@ on a split such as data/processed/badodd/test and reports:
 * a "what did the detector call it" table: for each ground-truth class, the class of the
   best-overlapping detection at the operating threshold, or "missed".
 
+Frames of one video are strongly correlated, so `--bootstrap-unit video` resamples whole videos
+(read from BadODD-style file names, `<video>_<frame>.jpg`) instead of single images; its interval
+is wider and is the honest one when a test set holds few videos.
+
 Raw detections are cached, so the scores can be recomputed without re-running the model.
 
     cd ml
@@ -23,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import pickle
+import re
 import sys
 import time
 from collections import Counter, defaultdict
@@ -103,6 +108,29 @@ def average_precision(conf, tp, n_gt, weight=None) -> float | None:
     return float(np.sum((mrec[idx + 1] - mrec[idx]) * mpre[idx + 1]))
 
 
+_FRAME = re.compile(r"^(?P<video>.+)_\d+$")
+
+
+def video_of(image_name: str) -> str:
+    """'chittagong_bohoddarhat1_10384.jpg' -> 'chittagong_bohoddarhat1'; names without a frame number stay whole."""
+    stem = Path(image_name).stem
+    m = _FRAME.match(stem)
+    return m["video"] if m else stem
+
+
+def bootstrap_weights(rng, groups, n_img: int) -> np.ndarray:
+    """One bootstrap draw as per-image weights.
+
+    groups=None resamples images. Otherwise whole groups (videos) are resampled, and every image
+    weighs as often as its group was drawn.
+    """
+    if groups is None:
+        return np.bincount(rng.integers(0, n_img, n_img), minlength=n_img).astype(float)
+    _, inv = np.unique(np.asarray(groups), return_inverse=True)
+    k = int(inv.max()) + 1
+    return np.bincount(rng.integers(0, k, k), minlength=k).astype(float)[inv]
+
+
 # ---------------------------------------------------------------- data
 def load_gt(label_path: Path, w: int, h: int):
     boxes, cls = [], []
@@ -125,6 +153,8 @@ def run_detector(args, images):
     kw = {"conf": args.conf_floor}
     if args.model_id:
         kw["model_id" if args.detector == "hf" else "weights"] = args.model_id
+    if args.imgsz:
+        kw["imgsz"] = args.imgsz
     det = make_detector(args.detector, **kw)
     if det.mapping is None:  # fine-tuned model: outputs unified classes directly
         model_classes = sorted(set(det.names if det.names is not None else CLASSES) & set(CLASSES))
@@ -154,7 +184,7 @@ def run_detector(args, images):
 
 
 # ---------------------------------------------------------------- scoring
-def score(cache, split: Path, model_classes, iou_thr, op_conf, n_boot, seed):
+def score(cache, split: Path, model_classes, iou_thr, op_conf, n_boot, seed, groups=None):
     n_img = len(cache)
     per_cls_conf, per_cls_tp, per_cls_img = defaultdict(list), defaultdict(list), defaultdict(list)
     gt_count = defaultdict(lambda: np.zeros(n_img))
@@ -213,7 +243,7 @@ def score(cache, split: Path, model_classes, iou_thr, op_conf, n_boot, seed):
     rng = np.random.default_rng(seed)
     boot_all, boot_pred = [], []
     for _ in range(n_boot):
-        wts = np.bincount(rng.integers(0, n_img, n_img), minlength=n_img).astype(float)
+        wts = bootstrap_weights(rng, groups, n_img)
         boot_all.append(m_ap(wts, gt_classes))
         boot_pred.append(m_ap(wts, predictable))
 
@@ -231,6 +261,8 @@ def score(cache, split: Path, model_classes, iou_thr, op_conf, n_boot, seed):
         "map50_predictable_classes_ci95": ci(boot_pred),
         "predictable_classes": predictable,
         "bootstrap_samples": n_boot,
+        "bootstrap_unit": "image" if groups is None else "video",
+        "bootstrap_groups": n_img if groups is None else len(set(groups)),
         "confusion_at_op": {c: dict(confusion[c].most_common()) for c in gt_classes},
     }
 
@@ -241,6 +273,7 @@ def to_markdown(res: dict) -> str:
 
     lo, hi = res["map50_all_classes_ci95"] or [None, None]
     plo, phi = res["map50_predictable_classes_ci95"] or [None, None]
+    unit = res.get("bootstrap_unit", "image")
     lines = [
         f"# Detector evaluation — {res['detector']} `{res.get('model_id') or 'COCO default'}`",
         "",
@@ -248,7 +281,7 @@ def to_markdown(res: dict) -> str:
         f"operating threshold {res['operating_conf']} · {res['date']}",
         "",
         f"**mAP@50, all classes with ground truth:** {f(res['map50_all_classes'])} "
-        f"(95 % bootstrap CI {f(lo)}–{f(hi)})",
+        f"(95 % bootstrap CI {f(lo)}–{f(hi)}, resampling {res.get('bootstrap_groups', '')} {unit}s)",
         "",
         f"**mAP@50, classes the model can output** ({', '.join(res['predictable_classes'])}): "
         f"{f(res['map50_predictable_classes'])} (95 % CI {f(plo)}–{f(phi)})",
@@ -279,9 +312,14 @@ def main():
     ap.add_argument("--iou", type=float, default=0.5)
     ap.add_argument("--limit", type=int, default=0, help="evaluate a random subset of N images (0 = all)")
     ap.add_argument("--bootstrap", type=int, default=1000)
+    ap.add_argument("--bootstrap-unit", choices=["image", "video"], default="image",
+                    help="resample images, or whole videos (<video>_<frame> file names) for correlated frames")
+    ap.add_argument("--imgsz", type=int, default=None, help="inference size (ultralytics backend only)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--reuse-cache", action="store_true", help="skip inference and rescore the cached detections")
     args = ap.parse_args()
+    if args.imgsz and args.detector != "ultralytics":
+        ap.error("--imgsz only applies to --detector ultralytics (the HF processor sets its own size)")
 
     images = sorted(p for p in (args.split / "images").iterdir() if p.suffix.lower() in IMG_EXT)
     if args.limit:
@@ -301,8 +339,9 @@ def main():
         with open(cache_path, "wb") as fh:
             pickle.dump({"cache": cache, "model_classes": model_classes, "detector": det_name}, fh)
 
-    res = score(cache, args.split, model_classes, args.iou, args.op_conf, args.bootstrap, args.seed)
-    res.update({"detector": det_name, "model_id": args.model_id, "split": str(args.split),
+    groups = [video_of(r["image"]) for r in cache] if args.bootstrap_unit == "video" else None
+    res = score(cache, args.split, model_classes, args.iou, args.op_conf, args.bootstrap, args.seed, groups)
+    res.update({"detector": det_name, "model_id": args.model_id, "split": str(args.split), "imgsz": args.imgsz,
                 "conf_floor": args.conf_floor, "date": date.today().isoformat(),
                 "seconds": round(time.time() - t0, 1)})
     args.out.with_suffix(".json").write_text(json.dumps(res, indent=1))
