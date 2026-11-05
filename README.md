@@ -77,7 +77,42 @@ npx playwright test                 # end-to-end: starts both servers, uploads a
 
 The bare page at http://127.0.0.1:8000 still works for quick checks.
 
-Env: `ROADWATCH_DETECTOR=hf|rfdetr|ultralytics`, `ROADWATCH_DAILY_LIMIT=20`, `ROADWATCH_ALLOW_NO_FFMPEG=1` (dev only).
+Env: `ROADWATCH_DETECTOR=hf|rfdetr|ultralytics`, `ROADWATCH_DAILY_LIMIT=20`, `ROADWATCH_ALLOW_NO_FFMPEG=1` (dev only),
+`ROADWATCH_SECURE_COOKIE=1` (behind HTTPS), `ROADWATCH_AUTH_LIMIT=10` (login/sign-up attempts per IP per 15 min).
+
+First admin: sign up on the site, then `cd backend; ..\ml\.venv\Scripts\python manage.py set-role you@example.com admin`.
+
+### Install as an app (Android, iOS, Windows, macOS, Linux)
+
+The site is a Progressive Web App: one codebase, installed from the browser, no app store.
+
+| Platform | Browser | How |
+|---|---|---|
+| Android | Chrome, Edge, Samsung Internet | the site offers **Install**, or menu → *Install app* |
+| iPhone / iPad | Safari | Share → *Add to Home Screen* (the site shows this hint) |
+| Windows | Chrome, Edge | install icon in the address bar, or the site's **Install** button |
+| macOS | Chrome, Edge; Safari 17+ | install icon; in Safari: File → *Add to Dock* |
+| Linux / ChromeOS | Chrome, Edge, Chromium | install icon in the address bar |
+
+Installing needs **HTTPS** (plain http works only on `localhost`), so other devices can open the site over
+the LAN (`http://<this-pc-ip>:3000`) but can only install it once it's deployed behind HTTPS.
+The service worker (`web/public/sw.js`) caches only the app shell; `/api/` (videos, results, accounts)
+is never cached.
+
+### Cross-browser tests
+
+`playwright.config.ts` has one project per platform: `android` (Pixel 7), `iphone`, `ipad`,
+`windows-linux-chrome`, `edge`, `mac-safari`, `firefox`. The slow upload test runs on the phones only.
+
+```powershell
+npx playwright install webkit firefox
+# many sign-ups from one IP trip the login limit: raise it for the test backend only
+$env:ROADWATCH_AUTH_LIMIT=500; ..\ml\.venv\Scripts\uvicorn app:app --port 8000   # in backend/
+npx playwright test e2e/pwa.spec.ts e2e/accounts.spec.ts e2e/admin.spec.ts
+```
+
+Playwright's WebKit build for Windows can't decode H.264 (real Safari can), so on `iphone` the upload
+test takes the "browser can't preview this video" path: upload without trim/arrows.
 
 ## Data loop
 1. `scripts/sample_frames.py` → frames to label in CVAT (follow `docs/annotation_guideline.md`).

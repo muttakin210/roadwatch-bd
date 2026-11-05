@@ -47,7 +47,8 @@ PHONE_RE = re.compile(r"^\+?[0-9 \-]{7,20}$")
 
 _attempts: dict[str, list[float]] = defaultdict(list)
 _att_lock = threading.Lock()
-LOGIN_LIMIT, LOGIN_WINDOW_S = 10, 15 * 60
+# attempts per IP (and per email) per 15 min; raise only for automated test runs
+LOGIN_LIMIT, LOGIN_WINDOW_S = int(os.environ.get("ROADWATCH_AUTH_LIMIT", 10)), 15 * 60
 
 
 def setup(db: Callable[[], sqlite3.Connection]) -> None:

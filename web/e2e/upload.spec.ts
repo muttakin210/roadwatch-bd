@@ -11,23 +11,27 @@ test("upload → processing → results, in Bangla and English", async ({ page }
   await expect(page.getByText("RoadWatch BD").first()).toBeVisible();
 
   await page.locator('input[type="file"]').setInputFiles(CLIP);
-  // metadata loaded → trim controls + first frame for arrows
+  // Browsers that can decode the clip show trim controls and a frame for arrows. Playwright's Windows
+  // WebKit build can't decode H.264 (real Safari can): there the form must say so and still allow upload.
   const start = page.getByLabel("Start", { exact: true });
-  await expect(start).toBeVisible();
-  await expect(page.locator("canvas").first()).toBeVisible();
-
-  // trim the first second → forces the in-browser compression path
-  await start.fill("1");
-  // Draw a direction arrow matching the real traffic: this sample is a right-hand-traffic road,
-  // so the left carriageway comes TOWARDS the camera (top → bottom).
-  const canvas = page.locator("canvas").first();
-  await canvas.scrollIntoViewIfNeeded(); // on a phone-sized viewport it's below the fold
-  const box = (await canvas.boundingBox())!;
-  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.4);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.9, { steps: 8 });
-  await page.mouse.up();
-  await expect(page.getByText("1 arrows drawn")).toBeVisible();
+  const noPreview = page.getByText(/can’t preview this video/);
+  await expect(start.or(noPreview)).toBeVisible();
+  const previewed = await start.isVisible();
+  if (previewed) {
+    await expect(page.locator("canvas").first()).toBeVisible();
+    // trim the first second → forces the in-browser compression path
+    await start.fill("1");
+    // Draw a direction arrow matching the real traffic: this sample is a right-hand-traffic road,
+    // so the left carriageway comes TOWARDS the camera (top → bottom).
+    const canvas = page.locator("canvas").first();
+    await canvas.scrollIntoViewIfNeeded(); // on a phone-sized viewport it's below the fold
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.4);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.9, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.getByText("1 arrows drawn")).toBeVisible();
+  }
 
   await page.getByRole("button", { name: "Upload and analyse" }).click();
   await page.waitForURL(/\/v\/[0-9a-f]{32}$/, { timeout: 120_000 });
@@ -38,9 +42,12 @@ test("upload → processing → results, in Bangla and English", async ({ page }
   await expect(page.getByRole("heading", { name: "Results" })).toBeVisible({ timeout: 7 * 60_000 });
   const video = page.locator("section video"); // the results player
   await expect(video).toHaveAttribute("src", /\/annotated$/);
-  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState), { timeout: 30_000 }).toBeGreaterThan(0);
-  const dims = await video.evaluate((v: HTMLVideoElement) => [v.videoWidth, v.videoHeight]);
-  expect(dims[0]).toBeGreaterThan(0); // the browser could decode the H.264 output
+  if (previewed) {
+    // the browser could decode the H.264 output
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState), { timeout: 30_000 }).toBeGreaterThan(0);
+    const dims = await video.evaluate((v: HTMLVideoElement) => [v.videoWidth, v.videoHeight]);
+    expect(dims[0]).toBeGreaterThan(0);
+  }
 
   // JSON download is served
   const json = await page.request.get(page.url().replace("/v/", "/api/videos/") + "/events.json");
@@ -49,7 +56,7 @@ test("upload → processing → results, in Bangla and English", async ({ page }
   expect(report.rules_version).toBeTruthy();
   // a correct arrow must not produce wrong-way accusations against normal traffic
   const ww = report.events.filter((e: { type: string }) => e.type === "wrong_way");
-  expect(ww).toHaveLength(0);
+  if (previewed) expect(ww).toHaveLength(0);
   console.log("notes:", JSON.stringify(report.notes), "events:", report.events.length);
 
   await page.screenshot({ path: "e2e/out/results-en.png", fullPage: true });
