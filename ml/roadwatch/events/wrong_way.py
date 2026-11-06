@@ -101,8 +101,11 @@ def detect_wrong_way(tracks: list[Track], road: RoadModel, flow, hints, cfg):
             ut = _find_uturn(tr, a, b, cfg)
             if ut is not None:
                 i, j = ut
+                # Most U-turns are legal, and whether one is (a no-U-turn sign, a solid divider) can't be seen
+                # by the model: keep it below the default show cut-off (0.6), so it's listed only among the
+                # uncertain events until a reviewer confirms it.
                 events.append(Event(type="u_turn", vehicle_class=tr.cls, track=tr.id,
-                                    start=float(tr.t[i]), end=float(tr.t[j]), raw_score=0.6,
+                                    start=float(tr.t[i]), end=float(tr.t[j]), raw_score=0.45,
                                     severity="low", reason="turned ~180° (U-turn)",
                                     details={"reason_parts": [rp("uturn")]}))
                 pieces = [(a, i - 1), (j + 1, b)]
