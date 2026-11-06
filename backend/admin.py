@@ -162,10 +162,12 @@ def moderate(vid: str, body: Moderation, me=ADMIN):
 def reanalyse(vid: str, me=ADMIN):
     _vid_ok(vid)
     with db() as c:
-        v = c.execute("SELECT storage_key FROM videos WHERE id=?", (vid,)).fetchone()
+        v = c.execute("SELECT storage_key, status FROM videos WHERE id=?", (vid,)).fetchone()
     if not v:
         raise HTTPException(404)
-    if not (_cfg["uploads"] / v["storage_key"]).exists():
+    if v["status"] in ("uploaded", "queued", "processing"):
+        raise HTTPException(409, "this video is already being analysed")
+    if not (_cfg["uploads"] / Path(v["storage_key"]).name).exists():
         raise HTTPException(409, "the original upload was already deleted")
     job = _cfg["enqueue"](vid)
     audit(me["id"], "reanalyse_video", vid)
