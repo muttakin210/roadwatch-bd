@@ -10,7 +10,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import pickle
+import shutil
 import subprocess
 import tempfile
 import time
@@ -35,18 +37,34 @@ log = logging.getLogger("roadwatch")
 ML_DIR = Path(__file__).resolve().parents[1]
 
 
-def run_video(path: str | Path, out_dir: str | Path, hints: Hints | dict | None = None, *,
-              detector=None, detector_backend: str = "hf", detector_kw: dict | None = None,
-              cfg=None, tracker: str = "auto", calibration: str | Path | None = ML_DIR / "models" / "calibration.json",
-              yunet_model: str | Path | None = ML_DIR / "models" / "face_detection_yunet_2023mar.onnx",
-              render: bool = True, progress: Callable[[str, float], None] | None = None,
-              allow_no_ffmpeg: bool = False, reuse_detections: bool = True) -> dict:
+def run_video(path: str | Path, out_dir: str | Path, hints: Hints | dict | None = None, **kw) -> dict:
+    """See _run_video. The normalised copy (unblurred pixels) lives in a temp folder that is always removed."""
+    tmp = Path(tempfile.mkdtemp(prefix="roadwatch_"))
+    try:
+        return _run_video(path, out_dir, hints, tmp=tmp, **kw)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    part = path.with_name(path.name + ".part")
+    part.write_text(text, encoding="utf-8")
+    os.replace(part, path)
+
+
+def _run_video(path: str | Path, out_dir: str | Path, hints: Hints | dict | None = None, *, tmp: Path,
+               detector=None, detector_backend: str = "hf", detector_kw: dict | None = None,
+               cfg=None, tracker: str = "auto", calibration: str | Path | None = ML_DIR / "models" / "calibration.json",
+               yunet_model: str | Path | None = ML_DIR / "models" / "face_detection_yunet_2023mar.onnx",
+               render: bool = True, progress: Callable[[str, float], None] | None = None,
+               allow_no_ffmpeg: bool = False, reuse_detections: bool = True) -> dict:
     t_start = time.time()
     cfg = cfg or load_config()
     hints = hints if isinstance(hints, Hints) else Hints.from_dict(hints)
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     say = progress or (lambda step, frac: log.info("%s %.0f%%", step, frac * 100))
     fps = int(cfg.analysis_fps)
+    notes = []
 
     # ---- probe + normalise -------------------------------------------------------
     say("checking video", 0.0)
@@ -54,18 +72,21 @@ def run_video(path: str | Path, out_dir: str | Path, hints: Hints | dict | None 
     src = Path(path)
     if have_ffmpeg():
         info = probe(src)
-        norm = Path(tempfile.mkdtemp()) / "norm.mp4"
-        normalise(src, norm, fps=fps)
+        norm = tmp / "norm.mp4"
+        normalise(src, norm, fps=fps, trim=hints.trim)   # trim: the browser couldn't cut the clip itself
         src = norm
     elif not allow_no_ffmpeg:
         raise RuntimeError("ffmpeg not found. Install it, or pass allow_no_ffmpeg=True for local development.")
     else:
         log.warning("ffmpeg missing: no validation, rotation or VFR handling (development only)")
+        if hints.trim:
+            notes.append(note("trim_ignored", "the chosen trim couldn't be applied; the clip was analysed from its start"))
 
     # ---- PASS 1a: detect + camera motion (cached: re-running rules needs no detector) ----
     st = Path(path).stat()
     det_name = getattr(detector, "name", None) or f"{detector_backend}:{json.dumps(detector_kw or {}, sort_keys=True)}"
-    cache_key = [str(Path(path).resolve()), st.st_size, int(st.st_mtime), det_name, fps]
+    trim_key = list(hints.trim) if hints.trim and have_ffmpeg() else None
+    cache_key = [str(Path(path).resolve()), st.st_size, int(st.st_mtime), det_name, fps, trim_key]
     cache_file = out_dir / "pass1_cache.pkl"
     cached = None
     if reuse_detections and cache_file.exists():
@@ -120,14 +141,13 @@ def run_video(path: str | Path, out_dir: str | Path, hints: Hints | dict | None 
         tr.compute_kinematics(cfg)
 
     W, H = size
-    notes = []
     if hints.road_edges and hints.road_edges.get("left") and hints.road_edges.get("right"):
         road = RoadModel.from_edges(W, H, hints.road_edges["left"], hints.road_edges["right"],
                                     hints.road_edges.get("divider"))
     else:
         road = RoadModel.from_heatmap(tracks, W, H)
         if not np.any(~np.isnan(road.left_kerb)):
-            notes.append(note("no_road_edges", "road edges not found — tap the two road edges on the first frame"))
+            notes.append(note("no_road_edges", "road edges not found, so the whole frame was treated as road"))
             road = RoadModel.from_edges(W, H, [(0, 0), (0, H - 1)], [(W - 1, 0), (W - 1, H - 1)], source="full_frame")
 
     # ---- PASS 2: events --------------------------------------------------------------
@@ -156,6 +176,10 @@ def run_video(path: str | Path, out_dir: str | Path, hints: Hints | dict | None 
     if render:
         say("rendering", 0.0)
         blur = Blurrer(yunet_model)
+        if not blur.faces_enabled:
+            n = note("face_blur_off", "the face-detection model is missing: only the heads of detected people were blurred")
+            res["note_parts"].append(n)
+            res["notes"].append(n["en"])
         raw_render = out_dir / "annotated_mp4v.mp4"
         rnd = Renderer(raw_render, fps, size, tracks, events,
                        res["congestion"]["timeline"], cfg.window_s)
@@ -172,10 +196,13 @@ def run_video(path: str | Path, out_dir: str | Path, hints: Hints | dict | None 
         rnd.close()
         final = out_dir / "annotated.mp4"
         if have_ffmpeg():
-            # OpenCV writes MPEG-4 Part 2, which browsers can't play: re-encode to H.264 + faststart
+            # OpenCV writes MPEG-4 Part 2, which browsers can't play: re-encode to H.264 + faststart.
+            # Encode next to it and swap in at the end, so a re-analysis never serves a half-written file.
+            encoded = out_dir / "annotated.part.mp4"
             subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(raw_render), "-c:v", "libx264",
                             "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-                            "-movflags", "+faststart", str(final)], check=True, timeout=900)
+                            "-movflags", "+faststart", str(encoded)], check=True, timeout=900)
+            os.replace(encoded, final)
             raw_render.unlink()
         else:
             log.warning("ffmpeg missing: annotated.mp4 stays MPEG-4 Part 2 and won't play in browsers")
@@ -183,8 +210,7 @@ def run_video(path: str | Path, out_dir: str | Path, hints: Hints | dict | None 
         res["annotated"] = "annotated.mp4"
 
     res["processing_s"] = round(time.time() - t_start, 1)
-    with open(out_dir / "events.json", "w", encoding="utf-8") as f:
-        json.dump(res, f, indent=1, default=float)
+    _write_atomic(out_dir / "events.json", json.dumps(res, indent=1, default=float))
     say("done", 1.0)
     return res
 
