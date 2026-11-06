@@ -28,14 +28,13 @@ export async function compressVideo(
     if (!track) return null;
     const w = track.displayWidth;
     const h = track.displayHeight;
-    const scale = Math.min(1, 720 / Math.min(w, h)); // short side 720 → long side ~1280
-    const even = (v: number) => Math.max(2, Math.round((v * scale) / 2) * 2);
+    const out = compressedSize(w, h);
     const output = new Output({ format: new Mp4OutputFormat({ fastStart: "in-memory" }), target: new BufferTarget() });
     const conversion = await Conversion.init({
       input,
       output,
       // Only resize/re-encode when above 720p; otherwise a trim can copy the stream as-is.
-      video: scale < 1 ? { width: even(w), height: even(h), fit: "fill", codec: "avc", quality: QUALITY_MEDIUM } : {},
+      video: out.w !== w || out.h !== h ? { width: out.w, height: out.h, fit: "fill", codec: "avc", quality: QUALITY_MEDIUM } : {},
       audio: { discard: true }, // audio isn't analysed; dropping it saves size and protects privacy
       trim: trim ?? undefined,
       showWarnings: false,
@@ -83,6 +82,19 @@ export async function compressVideo(
     console.warn("compression failed, uploading original", e);
     return null;
   }
+}
+
+/** Frame size compressVideo produces for a w×h video: short side 720 (never upscaled), even numbers. */
+export function compressedSize(w: number, h: number): { w: number; h: number } {
+  const scale = Math.min(1, 720 / Math.min(w, h));
+  if (scale >= 1) return { w, h };
+  const even = (v: number) => Math.max(2, Math.round((v * scale) / 2) * 2);
+  return { w: even(w), h: even(h) };
+}
+
+/** The server analyses at long side ≤ 1280 (ffmpeg, never upscaled): the factor from a w×h upload to that. */
+export function analysisScale(w: number, h: number): number {
+  return Math.min(1, 1280 / Math.max(w, h));
 }
 
 /** Compress only when it helps: big files, a trim, or more than 720p. */

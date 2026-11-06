@@ -4,7 +4,18 @@ export type Hints = {
   camera_along_road?: boolean;
   oneway?: boolean | null;
   arrows?: [number, number, number, number][];
+  /** [start, end] seconds: set only when the browser couldn't trim the file itself; the server trims instead */
+  trim?: [number, number];
 };
+
+/** An HTTP error from the API, with its status code (the message is the server's explanation). */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
 
 export type RoadEvent = {
   id: string;
@@ -53,7 +64,7 @@ async function json<T>(r: Response): Promise<T> {
       const b = await r.json();
       msg = typeof b.detail === "string" ? b.detail : JSON.stringify(b.detail ?? b);
     } catch {}
-    throw new Error(msg);
+    throw new ApiError(msg, r.status);
   }
   return r.json() as Promise<T>;
 }
@@ -67,7 +78,12 @@ export async function uploadResumable(
   signal?: AbortSignal,
 ): Promise<string> {
   const fp = `upload:${file.name ?? "blob"}:${file.size}:${file.lastModified ?? 0}`;
-  let uid = localStorage.getItem(fp);
+  const store = {   // localStorage can throw (private mode, blocked storage): resuming is a bonus, not required
+    get: () => { try { return localStorage.getItem(fp); } catch { return null; } },
+    set: (v: string) => { try { localStorage.setItem(fp, v); } catch {} },
+    drop: () => { try { localStorage.removeItem(fp); } catch {} },
+  };
+  let uid = store.get();
   let chunk = 4 * 1024 * 1024;
   let offset = 0;
   if (uid) {
@@ -75,7 +91,7 @@ export async function uploadResumable(
     if (r.ok) offset = (await r.json()).offset;
     else uid = null;
   }
-  if (!uid) {
+  const startSession = async () => {
     const r = await json<{ id: string; chunk_size: number }>(
       await fetch("/api/uploads", {
         method: "POST",
@@ -84,11 +100,14 @@ export async function uploadResumable(
         signal,
       }),
     );
-    uid = r.id;
+    store.set(r.id);
     chunk = r.chunk_size;
-    localStorage.setItem(fp, uid);
-  }
+    offset = 0;
+    return r.id;
+  };
+  if (!uid) uid = await startSession();
   let failures = 0;
+  let restarted = false;
   onProgress(offset, file.size, false);
   while (offset < file.size) {
     try {
@@ -100,6 +119,7 @@ export async function uploadResumable(
       });
       if (r.status === 409) {
         offset = (await r.json()).detail.offset; // server tells us where it really is
+        if (offset > file.size) throw new ApiError("upload is corrupt", 409);
         continue;
       }
       offset = (await json<{ offset: number }>(r)).offset;
@@ -107,7 +127,17 @@ export async function uploadResumable(
       onProgress(offset, file.size, false);
     } catch (e) {
       if (signal?.aborted) throw e;
-      if (e instanceof Error && /^4\d\d/.test(e.message) && !e.message.startsWith("409")) throw e;
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+        // The session is gone (expired, cleaned up) or broken: start over once, then give up.
+        if (!restarted && (e.status === 404 || e.status === 409 || e.status === 413)) {
+          restarted = true;
+          store.drop();
+          uid = await startSession();
+          onProgress(0, file.size, true);
+          continue;
+        }
+        throw e; // any other client error won't get better by retrying
+      }
       failures += 1;
       if (failures > 30) throw e;
       onProgress(offset, file.size, true);
@@ -118,7 +148,7 @@ export async function uploadResumable(
       } catch {}
     }
   }
-  localStorage.removeItem(fp);
+  store.drop();
   return uid;
 }
 
