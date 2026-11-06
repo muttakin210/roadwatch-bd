@@ -1,7 +1,7 @@
 """Shared data types and the unified class list (PLAN §4.4)."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, fields, asdict
 from typing import Any
 
 import numpy as np
@@ -56,15 +56,28 @@ class Hints:
     oneway: bool | None = None              # OSM oneway=yes (Phase 2) or user-supplied
     near_bus_stop: bool | None = None       # OSM highway=bus_stop within radius (severity)
     camera_type: str = "footbridge"
+    trim: tuple[float, float] | None = None  # [start, end] s: analyse only this part (set when the browser couldn't trim)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> "Hints":
+        """Only declared fields are taken (never methods or dunders); wrong shapes raise ValueError."""
         d = dict(d or {})
-        h = cls()
-        for k, v in d.items():
-            if hasattr(h, k):
-                setattr(h, k, v)
-        h.arrows = [tuple(a) for a in (h.arrows or [])]
+        names = {f.name for f in fields(cls)}
+        h = cls(**{k: v for k, v in d.items() if k in names})
+        for k in ("camera_along_road", "oneway", "near_bus_stop"):
+            if getattr(h, k) is not None and not isinstance(getattr(h, k), bool):
+                raise ValueError(f"hint {k} must be true, false or null")
+        try:
+            h.arrows = [tuple(float(v) for v in a) for a in (h.arrows or [])]
+            if any(len(a) != 4 for a in h.arrows):
+                raise ValueError
+            if h.road_edges is not None:
+                h.road_edges = {k: [(float(p[0]), float(p[1])) for p in v] for k, v in h.road_edges.items() if v}
+            if h.trim is not None:
+                s, e = (float(v) for v in h.trim)
+                h.trim = (s, e) if 0 <= s < e else None
+        except (TypeError, ValueError, IndexError, AttributeError):
+            raise ValueError("malformed hints (arrows, road_edges or trim)") from None
         return h
 
 
