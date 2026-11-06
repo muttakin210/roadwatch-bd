@@ -65,7 +65,8 @@ def test_signup_login_logout_and_password_storage(env):
     assert c.post("/api/auth/signup", json={"email": "rahim@example.com", "password": "x" * 12,
                                             "display_name": "x"}).status_code == 409
     assert c.post("/api/auth/signup", json={"email": "a@b.co", "password": "short", "display_name": "x"}).status_code == 422
-    c.post("/api/auth/logout")
+    assert c.post("/api/auth/logout").status_code == 415           # a cross-site form can't log you out
+    c.post("/api/auth/logout", json={})
     assert c.get("/api/me").json()["user"] is None
     # the old cookie is dead server-side, not just deleted in the browser
     c.cookies.set("rw_session", "replayed-token")

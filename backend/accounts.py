@@ -54,6 +54,7 @@ _attempts: dict[str, list[float]] = defaultdict(list)
 _att_lock = threading.Lock()
 # attempts per IP (and per email) per 15 min; raise only for automated test runs
 LOGIN_LIMIT, LOGIN_WINDOW_S = int(os.environ.get("ROADWATCH_AUTH_LIMIT", 10)), 15 * 60
+EMAIL_FAIL_LIMIT = 5 * LOGIN_LIMIT   # failed logins for one account from all addresses together
 
 
 def setup(db: Callable[[], sqlite3.Connection]) -> None:
@@ -159,13 +160,29 @@ def require_json(request: Request) -> None:
         raise HTTPException(415, "send JSON")
 
 
-def _throttle(key: str) -> None:
+def _throttle(key: str, limit: int | None = None, record: bool = True) -> None:
+    """At most `limit` (default LOGIN_LIMIT) hits on `key` per LOGIN_WINDOW_S. record=False only checks."""
     now = time.time()
+    limit = LOGIN_LIMIT if limit is None else limit
     with _att_lock:
         a = _attempts[key] = [t for t in _attempts[key] if now - t < LOGIN_WINDOW_S]
-        if len(a) >= LOGIN_LIMIT:
+        if len(a) >= limit:
             raise HTTPException(429, "too many attempts, try again later")
-        a.append(now)
+        if record:
+            a.append(now)
+        if len(_attempts) > 50_000:   # keep the table bounded: drop keys with no recent hits
+            for k in [k for k, v in _attempts.items() if not v or now - v[-1] >= LOGIN_WINDOW_S]:
+                del _attempts[k]
+
+
+def throttle(key: str, limit: int) -> None:
+    """Public rate limit for other modules (feedback, reports)."""
+    _throttle(key, limit)
+
+
+def _record_failure(key: str) -> None:
+    with _att_lock:
+        _attempts[key].append(time.time())
 
 
 _ip = client_ip
@@ -234,12 +251,18 @@ def signup(s: Signup, request: Request, response: Response):
 @router.post("/api/auth/login", dependencies=[Depends(require_json)])
 def login(body: Login, request: Request, response: Response):
     email = body.email.strip().lower()
-    _throttle(f"login-ip:{_ip(request)}")
-    _throttle(f"login-email:{email}")
+    ip = _ip(request)
+    _throttle(f"login-ip:{ip}")
+    # Per-account limits count FAILED attempts only, and the shared one is high: someone who knows your email
+    # can't lock you out from one address, while password guessing spread over many addresses still stops.
+    _throttle(f"login-fail:{ip}:{email}", record=False)
+    _throttle(f"login-fail:{email}", EMAIL_FAIL_LIMIT, record=False)
     with db() as c:
         u = c.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
         ok = check_password(body.password, u["password_hash"] if u else _DUMMY_HASH)
         if not (u and ok):
+            _record_failure(f"login-fail:{ip}:{email}")
+            _record_failure(f"login-fail:{email}")
             raise HTTPException(401, "email or password is wrong")   # same answer for unknown emails
         if u["disabled"]:
             raise HTTPException(403, "this account has been disabled")
@@ -247,7 +270,7 @@ def login(body: Login, request: Request, response: Response):
         return me_json(u)
 
 
-@router.post("/api/auth/logout")
+@router.post("/api/auth/logout", dependencies=[Depends(require_json)])   # no cross-site forced logout
 def logout(request: Request, response: Response):
     token = request.cookies.get(COOKIE)
     if token:
