@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Callable
 
@@ -14,6 +15,8 @@ import cv2
 import numpy as np
 
 from .types import Detection
+
+log = logging.getLogger("roadwatch")
 
 
 def _blur(frame: np.ndarray, x1, y1, x2, y2) -> None:
@@ -37,8 +40,16 @@ class Blurrer:
         self.face = None
         if yunet_model and Path(yunet_model).exists():
             self.face = cv2.FaceDetectorYN.create(str(yunet_model), "", (320, 320), 0.6)
+        else:
+            # Never fail open quietly: say so, and fall back to blurring the head of EVERY person box.
+            log.warning("face-detection model not found (%s): faces are only blurred via person boxes", yunet_model)
+            self.person_frac = 0.0
         self.plate = plate_detector
         self.near_frac = near_frac
+
+    @property
+    def faces_enabled(self) -> bool:
+        return self.face is not None
 
     def __call__(self, frame: np.ndarray, dets: list[Detection]) -> np.ndarray:
         out = frame.copy()
