@@ -44,6 +44,10 @@ def incidents(days: int = 7):
             "AND v.lat IS NOT NULL AND v.lng IS NOT NULL AND v.created_at >= ? "
             "AND v.lat BETWEEN ? AND ? AND v.lng BETWEEN ? AND ? "
             f"AND (e.type LIKE 'congestion%' OR (e.type IN ({','.join('?' * len(OFFENCES))}) AND e.verified = 1)) "
+            # one analysis per video: the latest (a re-analysis must not double every jam); a violation a
+            # reviewer confirmed stays even if it came from an earlier analysis
+            "AND (e.job_id = (SELECT r.job_id FROM results r WHERE r.video_id = v.id ORDER BY r.rowid DESC LIMIT 1) "
+            "     OR e.verified = 1) "
             "ORDER BY v.created_at DESC LIMIT 2000",
             (since, BD_BBOX[1], BD_BBOX[3], BD_BBOX[0], BD_BBOX[2], *OFFENCES)).fetchall()
     return {"days": days, "incidents": [
