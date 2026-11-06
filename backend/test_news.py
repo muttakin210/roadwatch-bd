@@ -1,11 +1,14 @@
 """Headlines from newspaper RSS: only safe links to the publisher, traffic stories flagged.  python -m pytest -q"""
+import email.utils
 import time
 
 import news
 
+# published an hour ago: a fixed date would fall out of the API's 36-hour window and fail the test later
+_PUB = email.utils.formatdate(time.time() - 3600).encode()
 RSS = b"""<?xml version="1.0"?><rss><channel>
 <item><title>Dhaka tailback stretches 10 km on Airport Road</title><link>https://www.thedailystar.net/a</link>
-  <pubDate>Thu, 05 Nov 2026 08:00:00 +0600</pubDate></item>
+  <pubDate>""" + _PUB + b"""</pubDate></item>
 <item><title><![CDATA[<b>Cricket</b> &amp; more]]></title><link>https://www.thedailystar.net/b</link></item>
 <item><title>Bad link</title><link>javascript:alert(1)</link></item>
 <item><title>Bus fare hike</title><link>https://evil.example/thedailystar.net</link></item>
