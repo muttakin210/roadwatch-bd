@@ -9,25 +9,48 @@ from ..types import Event, rp
 from .scene_state import SceneTimeline
 
 
-def occupancy(boxes: np.ndarray, road: RoadModel, footprint_frac: float) -> float:
-    """Union of ground footprints, row by row, each row divided by the road width at that row."""
-    if len(boxes) == 0:
-        return 0.0
+def _footprints(boxes: np.ndarray, road: RoadModel, footprint_frac: float) -> np.ndarray:
     cover = np.zeros_like(road.mask)
     H, W = road.height, road.width
     for x1, y1, x2, y2 in boxes:
         fy1 = int(np.clip(y2 - footprint_frac * (y2 - y1), 0, H - 1))
         fy2 = int(np.clip(y2, 0, H - 1))
         cover[fy1:fy2 + 1, int(np.clip(x1, 0, W - 1)):int(np.clip(x2, 0, W - 1)) + 1] = True
-    cover &= road.mask
+    return cover & road.mask
+
+
+def traffic_rows(tracks: list[Track], road: RoadModel, footprint_frac: float) -> tuple[int, int] | None:
+    """Row span of the road that traffic uses over the WHOLE clip (sky and far rows excluded).
+    Occupancy is measured over this fixed span, so a few vehicles standing together can't look like a full road."""
+    lo, hi = None, None
+    for tr in tracks:
+        if tr.cls == "person" or len(tr) == 0:
+            continue
+        b = tr.boxes
+        fy1 = np.clip(b[:, 3] - footprint_frac * (b[:, 3] - b[:, 1]), 0, road.height - 1)
+        fy2 = np.clip(b[:, 3], 0, road.height - 1)
+        lo = float(fy1.min()) if lo is None else min(lo, float(fy1.min()))
+        hi = float(fy2.max()) if hi is None else max(hi, float(fy2.max()))
+    return None if lo is None else (int(lo), int(hi))
+
+
+def occupancy(boxes: np.ndarray, road: RoadModel, footprint_frac: float,
+              span: tuple[int, int] | None = None) -> float:
+    """Union of ground footprints, row by row, each row divided by the road width at that row,
+    averaged over `span` (rows traffic uses in the clip; default: the rows these boxes cover)."""
+    if len(boxes) == 0:
+        return 0.0
+    cover = _footprints(boxes, road, footprint_frac)
     road_px = road.mask.sum(axis=1)
     rows = np.where((road_px > 0) & cover.any(axis=1))[0]
     all_rows = np.where(road_px > 0)[0]
     if len(all_rows) == 0:
         return 0.0
-    # rows the road spans in the region where vehicles appear at all (avoid empty sky/far rows)
     per_row = cover[all_rows].sum(axis=1) / road_px[all_rows]
-    lo, hi = (rows.min(), rows.max()) if len(rows) else (all_rows.min(), all_rows.max())
+    if span is not None:
+        lo, hi = span
+    else:
+        lo, hi = (rows.min(), rows.max()) if len(rows) else (all_rows.min(), all_rows.max())
     sel = (all_rows >= lo) & (all_rows <= hi)
     return float(per_row[sel].mean()) if sel.any() else 0.0
 
@@ -46,6 +69,7 @@ def congestion(tracks: list[Track], road: RoadModel, scene: SceneTimeline, durat
     n = len(scene.states)
     occ = np.zeros(n); spd = np.full(n, np.nan); stopped = np.zeros(n)
     veh = [t for t in tracks if t.cls != "person"]
+    span = traffic_rows(veh, road, c.footprint_frac)
     for k in range(n):
         t0, t1 = k * w, (k + 1) * w
         tm = (t0 + t1) / 2
@@ -58,7 +82,7 @@ def congestion(tracks: list[Track], road: RoadModel, scene: SceneTimeline, durat
             boxes.append(tr.boxes[j])
             speeds.append(float(np.median(tr.speed_mps[idx])))
             st.append(float(tr.stopped[idx].mean()) >= 0.5)
-        occ[k] = occupancy(np.array(boxes).reshape(-1, 4), road, c.footprint_frac)
+        occ[k] = occupancy(np.array(boxes).reshape(-1, 4), road, c.footprint_frac, span)
         if speeds:
             spd[k] = float(np.median(speeds))
             stopped[k] = float(np.mean(st))

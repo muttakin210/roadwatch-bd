@@ -45,7 +45,45 @@ class FlowField:
                     continue
                 self.cells.setdefault(c, {})[tr.id] = circ_mean_deg(tr.heading[idx], tr.speed_mps[idx])[0]
         self.warnings: list[dict[str, str]] = []  # note() dicts
+        self._centre_ok = self._centre_line_usable(tracks)
         self._check_arrows()
+
+    # ---- left-hand-traffic sides -----------------------------------------
+    def _centre_side(self, x: float, y: float) -> int | None:
+        """-1/+1 = left/right of the road's centre line (midway between the kerbs) at that row."""
+        r = self.road._row(y)
+        lk, rk = self.road.left_kerb[r], self.road.right_kerb[r]
+        if np.isnan(lk) or np.isnan(rk) or rk - lk < 1:
+            return None
+        return -1 if x < (lk + rk) / 2 else 1
+
+    def _centre_line_usable(self, tracks: list[Track]) -> bool:
+        """Without a divider (the web app never sends one), the centre line stands in for it, but only when
+        the clip itself shows two-way, left-hand traffic: the left half moving away and the right half coming
+        towards the camera. A one-way road, or a camera facing the other way, never qualifies."""
+        if not self.hints.camera_along_road or self.road.divider is not None or self.road.source == "full_frame":
+            return False
+        sides: dict[int, list[float]] = {-1: [], 1: []}
+        for tr in tracks:
+            if tr.cls == "person" or tr.heading is None:
+                continue
+            ok = ~np.isnan(tr.heading)
+            if ok.sum() < 3:
+                continue
+            gx, gy = np.median(tr.gp[ok], axis=0)
+            s = self._centre_side(gx, gy)
+            if s is not None:
+                sides[s].append(circ_mean_deg(tr.heading[ok], tr.speed_mps[ok])[0])
+        if min(len(sides[-1]), len(sides[1])) < 3:
+            return False
+        left, right = circ_median_deg(np.array(sides[-1])), circ_median_deg(np.array(sides[1]))
+        return bool(angle_diff(left, -90.0) <= 60 and angle_diff(right, 90.0) <= 60)
+
+    def _lht_side(self, x: float, y: float) -> int | None:
+        side = self.road.side_of_divider(x, y)
+        if side is None and self._centre_ok:
+            side = self._centre_side(x, y)
+        return side
 
     # ---- geometry --------------------------------------------------------
     def cell_of(self, x: float, y: float) -> tuple[int, int]:
@@ -95,7 +133,7 @@ class FlowField:
         the left side of the image moves away (up), the right side comes towards (down)."""
         if not self.hints.camera_along_road:
             return None
-        side = self.road.side_of_divider(*self.cell_center(c))
+        side = self._lht_side(*self.cell_center(c))
         if side is None:
             return None
         return CellDir(-90.0 if side < 0 else 90.0, True, "lht", 1.0, 0)
