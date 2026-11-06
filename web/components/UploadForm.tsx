@@ -8,7 +8,7 @@ import ArrowCanvas from "@/components/ArrowCanvas";
 import type { LatLng } from "@/components/LocationPicker";
 import { createVideo, uploadResumable } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { compressVideo, shouldCompress } from "@/lib/compress";
+import { analysisScale, compressedSize, compressVideo, shouldCompress } from "@/lib/compress";
 import { fmtTime, num, useT } from "@/lib/i18n";
 
 const LocationPicker = dynamic(() => import("@/components/LocationPicker"), {
@@ -86,6 +86,7 @@ export default function UploadForm() {
     try {
       let toSend: File = file;
       let note: string | undefined;
+      let compressed = false;
       if (shouldCompress(file, trimmed, meta?.w ?? 0, meta?.h ?? 0)) {
         setPhase({ k: "compressing", p: 0 });
         skip.current = new AbortController();
@@ -97,8 +98,18 @@ export default function UploadForm() {
         } catch (err) {
           if (signal.aborted || !skipSignal.aborted) throw err; // a real cancel/error, not "skip"
         }
-        if (c) toSend = c;
-        else note = t("compressSkipped");
+        if (c) {
+          toSend = c;
+          compressed = true;
+        } else note = t("compressSkipped");
+      }
+      // Arrows were drawn in analysis pixels of the ORIGINAL size (long side ≤ 1280). The server analyses the
+      // file we actually send, so rescale: e.g. a 4:3 video compressed to 960×720 is analysed at 960, not 1280.
+      let sentArrows = arrows;
+      if (meta && compressed && arrows.length) {
+        const up = compressedSize(meta.w, meta.h);
+        const k = (analysisScale(up.w, up.h) * up.w) / (analysisScale(meta.w, meta.h) * meta.w);
+        sentArrows = arrows.map((a) => a.map((v) => Math.round(v * k)) as Arrow);
       }
       setPhase({ k: "uploading", sent: 0, total: toSend.size, retrying: false, note });
       const uploadId = await uploadResumable(toSend, (sent, total, retrying) =>
@@ -109,7 +120,13 @@ export default function UploadForm() {
         consent_training: consent,
         lat: loc?.lat ?? null,
         lng: loc?.lng ?? null,
-        hints: { camera_along_road: along, oneway: oneway || null, arrows },
+        hints: {
+          camera_along_road: along,
+          oneway: oneway || null,
+          arrows: sentArrows,
+          // the browser couldn't cut the clip: the server trims it, so the chosen part is still what's analysed
+          ...(trimmed && !compressed ? { trim: [trim[0], trim[1]] as [number, number] } : {}),
+        },
       });
       // Cache Components keeps this page mounted (hidden) after navigating away; reset it so
       // "Analyse another video" starts from a clean form instead of a finished upload.

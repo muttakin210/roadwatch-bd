@@ -9,7 +9,9 @@ const OWN = ["x-roadwatch-secret", "x-roadwatch-client-ip", "x-roadwatch-proto"]
 
 export function proxy(request: NextRequest) {
   const api = process.env.ROADWATCH_API ?? "http://127.0.0.1:8000";
-  const target = new URL(request.nextUrl.pathname + request.nextUrl.search, api);
+  // keep any path prefix in ROADWATCH_API (e.g. https://host/roadwatch): a leading-slash URL would drop it
+  const base = new URL(api);
+  const target = new URL(base.pathname.replace(/\/+$/, "") + request.nextUrl.pathname + request.nextUrl.search, base);
   const headers = new Headers(request.headers);
   for (const h of OWN) headers.delete(h); // never forward client-supplied copies
   const secret = process.env.ROADWATCH_PROXY_SECRET;
